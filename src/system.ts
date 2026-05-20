@@ -5,8 +5,10 @@
  *
  * @example
  * ```ts
- * // Simple fetch — each arg is a component array (SoA)
+ * // Simple fetch — each arg is an independent component array (SoA)
  * params(Position, Velocity).system((positions, velocities) => {
+ *   // positions: all entities with Position, velocities: all entities with Velocity
+ *   // Note: the two arrays are independent — no AND relationship
  *   for (let i = 0; i < positions.length; i++) {
  *     positions[i].x += velocities[i].x;
  *   }
@@ -288,21 +290,27 @@ export function Query(
 
 /**
  * Create a system builder from query parameter descriptors.
- * Each descriptor maps to one callback argument (as array).
+ * Each plain component descriptor is an independent query (SoA).
+ * Query() descriptors run with their own filters (AoS tuples).
  *
  * @example
  * ```ts
- * // Simple: each arg is a component array (SoA)
- * params(Position, Velocity).system((positions, velocities) => { ... });
+ * // Simple: each arg is an independent component array (SoA, no AND)
+ * params(Position, Velocity).system((positions, velocities) => {
+ *   // positions: all entities with Position
+ *   // velocities: all entities with Velocity (independent)
+ * });
  *
- * // Multi-fetch via Query() — tuple per entity (AoS)
+ * // Query() — AND-joined per entity (AoS)
  * params(Query(Position, Hp)).system((rows) => {
- *   // rows: [Position, Hp][]
+ *   // rows: [Position, Hp][] — only entities with BOTH
  *   for (const [pos, hp] of rows) { ... }
  * });
  *
- * // Scoped filters via Query()
- * params(Query(Position, With(Enemy)), Health).system((positions, healths) => { ... });
+ * // Query() with filters
+ * params(Query(Position, With(Enemy)), Health).system((positions, healths) => {
+ *   // positions: all enemies with Position, healths: all entities with Health (independent)
+ * });
  * ```
  */
 export function params<D extends readonly ParamDescriptor[]>(
@@ -351,13 +359,19 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
 
   /**
    * Create a system that collects matching entities' components into arrays.
-   * Plain ComponentClass descriptors are batched into a single joint query.
+   * Each plain ComponentClass descriptor is an independent query (all entities with that component).
    * Each QueryDescriptor runs independently (filters are scoped).
    * Resource/Local descriptors inject single values.
    */
   system(fn: (...args: InferParams<D>) => void): SystemFn {
     const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
+
+    // Pre-resolve QueryDescriptors to engines (reusable each frame)
+    const queryDescs = queryIndices.map((idx) => ({
+      idx,
+      qd: this.descriptors[idx] as QueryDescriptor,
+    }));
 
     // Per-closure cache for Local descriptors (lazy init on first run)
     const localCache: { idx: number; value: unknown }[] = [];
@@ -385,22 +399,20 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         args[idx] = world.getResource(descriptor.resourceType);
       }
 
-      // Batch query for all plain ComponentClass descriptors
-      if (plainGroup.length > 0) {
-        const fetches = plainGroup.map((p) => p.type);
-        const arrays: unknown[][] = fetches.map(() => []);
-        for (const [, comps] of world.query(...fetches)) {
-          for (let j = 0; j < comps.length; j++) {
-            arrays[j].push(comps[j]);
+      // Independent query for each plain ComponentClass descriptor
+      for (const { idx, type } of plainGroup) {
+        const items: unknown[] = [];
+        const storage = world.getComponentStorage(type);
+        if (storage) {
+          for (const val of storage.values()) {
+            items.push(val);
           }
         }
-        for (let j = 0; j < plainGroup.length; j++) {
-          args[plainGroup[j].idx] = arrays[j];
-        }
+        args[idx] = items;
       }
 
       // Independent query for each QueryDescriptor
-      for (const idx of queryIndices) {
+      for (const { idx } of queryDescs) {
         args[idx] = executeQueryDescriptor(
           world,
           this.descriptors[idx] as QueryDescriptor,
@@ -412,75 +424,10 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
   }
 
   /**
-   * Create a system with entity IDs array as the first callback argument,
-   * followed by component arrays.
-   * Entity IDs come from the batch query (if plain descriptors exist)
-   * or the first QueryDescriptor.
-   */
-  systemWithEntity(fn: (entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
-    const totalArgs = this.descriptors.length;
-
-    const localCache: { idx: number; value: unknown }[] = [];
-
-    return (world: World) => {
-      const ids: number[] = [];
-      const args: unknown[] = new Array(totalArgs);
-
-      // Resolve Commands parameter
-      for (const idx of commandsIndices) {
-        args[idx] = world.commands;
-      }
-
-      // Resolve Local parameters
-      for (const { idx, descriptor } of localEntries) {
-        let entry = localCache.find((e) => e.idx === idx);
-        if (!entry) {
-          entry = { idx, value: descriptor.init() };
-          localCache.push(entry);
-        }
-        args[idx] = entry.value;
-      }
-
-      // Resolve resource parameters
-      for (const { idx, descriptor } of resourceEntries) {
-        args[idx] = world.getResource(descriptor.resourceType);
-      }
-
-      // Batch query for all plain ComponentClass descriptors
-      if (plainGroup.length > 0) {
-        const fetches = plainGroup.map((p) => p.type);
-        const arrays: unknown[][] = fetches.map(() => []);
-        for (const [id, comps] of world.query(...fetches)) {
-          ids.push(id);
-          for (let j = 0; j < comps.length; j++) {
-            arrays[j].push(comps[j]);
-          }
-        }
-        for (let j = 0; j < plainGroup.length; j++) {
-          args[plainGroup[j].idx] = arrays[j];
-        }
-      }
-
-      // Independent queries for QueryDescriptors
-      for (const idx of queryIndices) {
-        const result = executeQueryDescriptorWithIds(
-          world,
-          this.descriptors[idx] as QueryDescriptor,
-        );
-        // Use the first query's entity IDs if no plain descriptors
-        if (ids.length === 0 && idx === queryIndices[0]) {
-          ids.push(...result.ids);
-        }
-        args[idx] = result.items;
-      }
-
-      fn(ids, ...(args as InferParams<D>));
-    };
-  }
-
-  /**
    * Create a system with World access + entity IDs array + component arrays.
+   * Entity IDs come from the first plain descriptor or first QueryDescriptor.
+   * Note: plain descriptors are independent, so `ids` from the first descriptor
+   * only aligns with its own array. Use `Query(Entity, Component)` for guaranteed alignment.
    */
   systemWithWorld(fn: (world: World, entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
     const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
@@ -512,19 +459,17 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         args[idx] = world.getResource(descriptor.resourceType);
       }
 
-      // Batch query for all plain ComponentClass descriptors
-      if (plainGroup.length > 0) {
-        const fetches = plainGroup.map((p) => p.type);
-        const arrays: unknown[][] = fetches.map(() => []);
-        for (const [id, comps] of world.query(...fetches)) {
-          ids.push(id);
-          for (let j = 0; j < comps.length; j++) {
-            arrays[j].push(comps[j]);
+      // Independent query for each plain ComponentClass descriptor
+      for (const { idx, type } of plainGroup) {
+        const items: unknown[] = [];
+        const storage = world.getComponentStorage(type);
+        if (storage) {
+          for (const entityId of storage.entityIds()) {
+            if (plainGroup[0].idx === idx) ids.push(entityId);
+            items.push(storage.get(entityId));
           }
         }
-        for (let j = 0; j < plainGroup.length; j++) {
-          args[plainGroup[j].idx] = arrays[j];
-        }
+        args[idx] = items;
       }
 
       // Independent queries for QueryDescriptors

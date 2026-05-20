@@ -26,16 +26,17 @@ function spawn(world: World): void {
   world.insertComponent(player, new Name('Player'));
 }
 
-const movement = params(Position, Velocity).system((positions, velocities) => {
-  for (let i = 0; i < positions.length; i++) {
-    positions[i].x += velocities[i].x;
-    positions[i].y += velocities[i].y;
+const movement = params(Query(Position, Velocity)).system((rows) => {
+  // rows: [Position, Velocity][] — AND-joined per entity
+  for (const [pos, vel] of rows) {
+    pos.x += vel.x;
+    pos.y += vel.y;
   }
 });
 
-const print = params(Position, Name).system((positions, names) => {
-  for (let i = 0; i < positions.length; i++) {
-    console.log(`${names[i].value}: (${positions[i].x}, ${positions[i].y})`);
+const print = params(Query(Position, Name)).system((rows) => {
+  for (const [pos, name] of rows) {
+    console.log(`${name.value}: (${pos.x}, ${pos.y})`);
   }
 });
 
@@ -84,9 +85,10 @@ world.hasComponent(entity, Health);     // boolean
 系统是一个接收 `World` 并对其进行操作的函数。通过 `params()` 构建器声明式定义查询：
 
 ```ts
+// 纯组件描述符是独立查询 — 无 AND 关系
 const system = params(Position, Velocity).system((positions, velocities) => {
-  // positions: Position[], velocities: Velocity[]
-  // 匹配同时拥有 Position 和 Velocity 的实体
+  // positions: 所有拥有 Position 的实体
+  // velocities: 所有拥有 Velocity 的实体（独立查询）
 });
 ```
 
@@ -103,9 +105,9 @@ const system = params(Position, Velocity, Res(DeltaTime), Cmd())
 
 ## 查询与过滤
 
-### 多组件合并查询（Tuple AoS）
+### 多组件联合查询（Tuple AoS）
 
-`Query()` 内传入多个组件，返回 tuple 数组：
+`Query()` 内传入多个组件，返回 tuple 数组。**仅返回同时拥有所有组件的实体**（AND 语义），与纯组件描述符的独立查询不同：
 
 ```ts
 const sys = params(Query(Position, Hp)).system((rows) => {
@@ -176,26 +178,16 @@ if (scoreMut) {
 | 方法 | 额外参数 | 适用场景 |
 |------|---------|---------|
 | `.system(fn)` | 组件数组 + 资源/命令单值 | 操作组件、读资源、发命令 |
-| `.systemWithEntity(fn)` | `entityIds` + 组件数组 + 资源/命令 | 需要实体 ID |
 | `.systemWithWorld(fn)` | `world` + `entityIds` + 组件数组 + 资源/命令 | 需要访问 World |
 
 ```ts
-// 需要实体 ID — 配合 systemWithEntity
-params(Lifetime, Name).systemWithEntity((ids, lifetimes, names) => {
-  for (let i = 0; i < ids.length; i++) {
-    if (lifetimes[i].ticks <= 0) {
-      console.log(`Entity ${ids[i]} expired!`);
-    }
-  }
-});
-
-// 注入资源 + 命令，避免手动取 world
-params(Lifetime, Name, Res(DeltaTime), Cmd())
-  .systemWithEntity((ids, lifetimes, names, dt, commands) => {
-    for (let i = 0; i < ids.length; i++) {
-      lifetimes[i].ticks -= dt.value;
-      if (lifetimes[i].ticks <= 0) {
-        commands.despawn({ id: ids[i], generation: 0 } as Entity);
+// 推荐：用 Query(Entity, ...) 获取实体 ID（Guaranteed alignment）
+params(Query(Lifetime, Name, Entity), Cmd())
+  .system((rows, commands) => {
+    // rows: [Lifetime, Name, Entity][]
+    for (const [lifetime, name, entity] of rows) {
+      if (lifetime.ticks <= 0) {
+        commands.despawn(entity);
       }
     }
   });

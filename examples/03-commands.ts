@@ -1,10 +1,10 @@
 /**
- * Commands example with params().systemWithWorld() for World access.
+ * Commands example with Query(Entity) for per-entity access.
  *
  * Run: npx tsx examples/03-commands.ts
  */
 
-import { App, World, params } from '../src/index';
+import { App, World, params, Query, Entity } from '../src/index';
 
 // ─── Define Components ───
 
@@ -35,20 +35,20 @@ function setup(world: World): void {
   console.log('[Startup] Spawned 2 entities via commands');
 }
 
-// systemWithWorld gives access to world + entity IDs array + typed component arrays
-const timerSystem = params(Timer, Name).systemWithWorld((world, ids, timers, names) => {
-  for (let i = 0; i < ids.length; i++) {
-    timers[i].remaining--;
-    console.log(`  ${names[i].value} timer: ${timers[i].remaining}`);
-    if (timers[i].remaining <= 0) {
-      console.log(`  ${names[i].value} expired!`);
+// Use Query() for AND-joined per-entity tuples
+const timerSystem = params(Query(Timer, Name, Entity)).system((rows) => {
+  for (const [timer, name, entity] of rows) {
+    timer.remaining--;
+    console.log(`  ${name.value} timer: ${timer.remaining}`);
+    if (timer.remaining <= 0) {
+      console.log(`  ${name.value} (${entity}) expired!`);
     }
   }
 });
 
-const printSystem = params(Name, Position).systemWithEntity((ids, names, positions) => {
-  for (let i = 0; i < ids.length; i++) {
-    console.log(`  ${names[i].value} (${ids[i]}): (${positions[i].x}, ${positions[i].y})`);
+const printSystem = params(Query(Name, Position, Entity)).system((rows) => {
+  for (const [name, pos, entity] of rows) {
+    console.log(`  ${name.value} (${entity}): (${pos.x}, ${pos.y})`);
   }
 });
 

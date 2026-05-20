@@ -4,7 +4,7 @@
  * Run: npx tsx examples/04-resources.ts
  */
 
-import { App, World, params } from '../src/index';
+import { App, World, params, Query, Res } from '../src/index';
 
 // ─── Define Resources ───
 
@@ -43,13 +43,11 @@ function readConfig(world: World): void {
   }
 }
 
-// Typed query iteration for physics — arrays for cache-friendly access
-const physicsSystem = params(Position, Velocity).systemWithWorld((world, ids, positions, velocities) => {
-  const config = world.getResource(GameConfig);
-  if (!config) return;
-  for (let i = 0; i < positions.length; i++) {
-    velocities[i].y += config.gravity * config.timeScale * 0.016;
-    positions[i].y += velocities[i].y * config.timeScale * 0.016;
+// Typed query iteration for physics — use Query() for AND-joined tuples
+const physicsSystem = params(Query(Position, Velocity), Res(GameConfig)).system((rows, config) => {
+  for (const [pos, vel] of rows) {
+    vel.y += config.gravity * config.timeScale * 0.016;
+    pos.y += vel.y * config.timeScale * 0.016;
   }
 });
 

@@ -4,7 +4,7 @@
  * Run: npx tsx examples/05-despawn.ts
  */
 
-import { App, World, Entity, params } from '../src/index';
+import { App, World, Entity, params, Query, Cmd } from '../src/index';
 
 // ─── Define Components ───
 
@@ -40,12 +40,13 @@ function setup(world: World): void {
   console.log(`[Startup] Spawned 3 entities. Alive: ${world.entityCount}`);
 }
 
-const lifetimeSystem = params(Lifetime, Name).systemWithWorld((world, ids, lifetimes, names) => {
-  for (let i = 0; i < ids.length; i++) {
-    lifetimes[i].ticks--;
-    if (lifetimes[i].ticks <= 0) {
-      console.log(`  ${names[i].value} expired!`);
-      world.commands.despawn({ id: ids[i], generation: 0 } as Entity);
+// Use Query() with Entity for guaranteed alignment
+const lifetimeSystem = params(Query(Lifetime, Name, Entity), Cmd()).system((rows, commands) => {
+  for (const [lifetime, name, entity] of rows) {
+    lifetime.ticks--;
+    if (lifetime.ticks <= 0) {
+      console.log(`  ${name.value} expired!`);
+      commands.despawn(entity);
     }
   }
 });

@@ -4,7 +4,7 @@
  * Run: npx tsx examples/01-basic.ts
  */
 
-import { App, Cmd, DefaultPlugin, Entity, Query, Res, Stages, Time, Timer, TimerMode, World, params } from '../src/index';
+import { App, Cmd, DefaultPlugin, Entity, Query, Res, Stages, Time, Timer, TimerMode, Without, World, params } from '../src/index';
 import { Local } from '../src/system';
 
 // ─── Define Components ───
@@ -38,21 +38,25 @@ function spawnEntities(world: World): void {
     .with(new Position(3, 7))
     .with(new Name('Static Object'));
 
+  world.commands.spawn()
+    .with(new Name('C'));
+
   console.log('[Startup] Spawned entities');
 }
 
 // ✨ params().system() — callback parameters are auto-typed arrays!
-const movementSystem = params(Position, Velocity).system((positions, velocities) => {
-  // positions: Position[], velocities: Velocity[]
-  for (let i = 0; i < positions.length; i++) {
-    positions[i].x += velocities[i].x;
-    positions[i].y += velocities[i].y;
+// Use Query() for AND-joined per-entity tuples (recommended)
+const movementSystem = params(Query(Position, Velocity)).system((rows) => {
+  // rows: [Position, Velocity][]
+  for (const [pos, vel] of rows) {
+    pos.x += vel.x;
+    pos.y += vel.y;
   }
 });
 
-const printSystem = params(Position, Name).system((positions, names) => {
-  for (let i = 0; i < positions.length; i++) {
-    console.log(`  ${names[i].value}: (${positions[i].x.toFixed(1)}, ${positions[i].y.toFixed(1)})`);
+const printSystem = params(Query(Position, Name)).system((rows) => {
+  for (const [pos, name] of rows) {
+    console.log(`  ${name.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)})`);
   }
 });
 
@@ -61,7 +65,6 @@ const testSystem = params(Local(() => ({ a: 233 })), Query(Position, Entity), Re
     console.log(state);
     console.log(time.delta);
   });
-
 // ─── Run ───
 
 const app = new App()
@@ -72,6 +75,4 @@ const app = new App()
   .insertResource(new Timer(2, TimerMode.Repeating))
   .addSystem(testSystem);
 
-setInterval(() => {
-  app.update();
-}, 16)
+app.update();
