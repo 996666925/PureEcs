@@ -4,7 +4,8 @@
  * Run: npx tsx examples/01-basic.ts
  */
 
-import { App, Cmd, Res, Stages, World, params } from '../src/index';
+import { App, Cmd, DefaultPlugin, Entity, Query, Res, Stages, Time, Timer, TimerMode, World, params } from '../src/index';
+import { Local } from '../src/system';
 
 // ─── Define Components ───
 
@@ -55,24 +56,22 @@ const printSystem = params(Position, Name).system((positions, names) => {
   }
 });
 
-export class TestResource {
-
-}
-
-const testSystem = params(Position, Res(TestResource), Cmd()).system((positions, res, cmd) => {
-
-  console.log(res);
-  console.log(cmd);
-
-});
+const testSystem = params(Local(() => ({ a: 233 })), Query(Position, Entity), Res(Time), Cmd())
+  .system((state, queries, time, cmd) => {
+    console.log(state);
+    console.log(time.delta);
+  });
 
 // ─── Run ───
 
 const app = new App()
+  .addPlugin(new DefaultPlugin())
   .addStartupSystem(spawnEntities)
   .addSystem(Stages.Startup, movementSystem)
   .addSystem(printSystem)
-  .insertResource(new TestResource())
+  .insertResource(new Timer(2, TimerMode.Repeating))
   .addSystem(testSystem);
-  
-app.update();
+
+setInterval(() => {
+  app.update();
+}, 16)

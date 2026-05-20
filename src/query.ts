@@ -42,13 +42,17 @@ export interface ChangedFilter<T = unknown> {
 export class QueryEngine {
   readonly fetches: readonly ComponentClass[];
   readonly filters: readonly QueryFilter[];
+  /** Positions in `fetches` that refer to the Entity itself (not a component) */
+  readonly entityPositions: ReadonlySet<number>;
 
   constructor(
     fetches: readonly ComponentClass[],
     filters: readonly QueryFilter[] = [],
+    entityPositions: ReadonlySet<number> = new Set(),
   ) {
     this.fetches = fetches;
     this.filters = filters;
+    this.entityPositions = entityPositions;
   }
 
   /**
@@ -57,16 +61,25 @@ export class QueryEngine {
   *iter(world: World): IterableIterator<[number, unknown[]]> {
     if (this.fetches.length === 0) return;
 
-    const storages = this.fetches.map((t) => world.getComponentStorage(t));
-    let smallestIdx = 0;
+    // Map each fetch to a storage (entity fetches have no storage)
+    const storages = this.fetches.map((t, i) =>
+      this.entityPositions.has(i) ? undefined : world.getComponentStorage(t),
+    );
+
+    // Find the smallest storage among actual components
+    let smallestIdx = -1;
     let smallestLen = Infinity;
     for (let i = 0; i < storages.length; i++) {
+      if (this.entityPositions.has(i)) continue; // skip entity fetches
       const len = storages[i]?.length ?? Infinity;
       if (len < smallestLen) {
         smallestLen = len;
         smallestIdx = i;
       }
     }
+
+    // All fetches are entity — no component storages
+    if (smallestIdx < 0) return;
 
     const smallestStorage = storages[smallestIdx];
     if (!smallestStorage) return;
@@ -76,6 +89,11 @@ export class QueryEngine {
       let allPresent = true;
 
       for (let i = 0; i < this.fetches.length; i++) {
+        if (this.entityPositions.has(i)) {
+          // Entity fetch — construct from world
+          components.push(world.getEntityById(entityId));
+          continue;
+        }
         const storage = storages[i];
         if (!storage || !storage.has(entityId)) {
           allPresent = false;

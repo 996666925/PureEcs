@@ -25,6 +25,19 @@
  *   // positions: Position[], healths: Health[]
  * });
  *
+ * // Query with Entity — includes entity handle in the tuple
+ * params(Query(Position, Entity)).system((rows) => {
+ *   // rows: [Position, Entity][]
+ *   for (const [pos, entity] of rows) {
+ *     console.log(`Entity ${entity}: (${pos.x}, ${pos.y})`);
+ *   }
+ * });
+ *
+ * // System-local state — lazy init, persists across frames
+ * params(Position, Local(() => new Map())).system((positions, cache) => {
+ *   // cache: Map<any, any> (single value, same instance each frame)
+ * });
+ *
  * // Resource parameters — injected as single values
  * params(Position, Res(GameConfig)).system((positions, config) => {
  *   // config: GameConfig (single value)
@@ -38,6 +51,7 @@ import type { SystemFn } from './scheduler';
 import type { World } from './world';
 import type { Commands } from './commands';
 import { QueryEngine } from './query';
+import { Entity } from './entity';
 
 // ─── Type helpers ───
 
@@ -50,16 +64,22 @@ type Instance<C> = C extends ComponentClass<infer T> ? T : never;
  * Describes a query parameter: one or more components to fetch + optional filters.
  * Single fetch → callback gets Instance<C>[] (SoA).
  * Multi fetch → callback gets [Instance<C1>, Instance<C2>, ...][] (AoS tuple).
+ *
+ * Use `Entity` as a fetch to include the entity handle in the result tuple:
+ * `Query(Position, Entity)` → `[Position, Entity][]`
  */
 export class QueryDescriptor<T = unknown> {
   readonly fetches: ComponentClass[];
   readonly filters: QueryFilter[];
+  /** Positions in fetches that are Entity (not component) */
+  readonly entityPositions: ReadonlySet<number>;
   /** Phantom — holds the component type for inference */
   declare readonly _type?: T;
 
-  constructor(fetches: ComponentClass[], filters: QueryFilter[]) {
+  constructor(fetches: ComponentClass[], filters: QueryFilter[], entityPositions: ReadonlySet<number> = new Set()) {
     this.fetches = fetches;
     this.filters = filters;
+    this.entityPositions = entityPositions;
   }
 }
 
@@ -121,12 +141,46 @@ export function Cmd(): CommandsDescriptor {
   return new CommandsDescriptor();
 }
 
-/** A parameter descriptor: ComponentClass, QueryDescriptor, ResourceDescriptor, or CommandsDescriptor */
-type ParamDescriptor = ComponentClass | QueryDescriptor<any> | ResourceDescriptor<any> | CommandsDescriptor;
+// ─── LocalDescriptor ───
+
+/**
+ * Describes a system-local state parameter — injected as a single value,
+ * lazily initialized on first invocation and reused across frames.
+ *
+ * - `Local(() => new Counter(0))` → callback receives `Counter`
+ */
+export class LocalDescriptor<T = unknown> {
+  readonly init: () => T;
+  /** Phantom — holds the type for inference */
+  declare readonly _type?: T;
+
+  constructor(init: () => T) {
+    this.init = init;
+  }
+}
+
+/**
+ * Declare a system-local state parameter. The `init` factory runs on first
+ * invocation, and the returned value is reused on subsequent calls.
+ *
+ * @example
+ * ```ts
+ * params(Position, Local(() => ({ count: 0 }))).system((positions, counter) => {
+ *   counter.count++;
+ * });
+ * ```
+ */
+export function Local<T>(init: () => T): LocalDescriptor<T> {
+  return new LocalDescriptor(init);
+}
+
+/** A parameter descriptor: ComponentClass, QueryDescriptor, ResourceDescriptor, CommandsDescriptor, or LocalDescriptor */
+type ParamDescriptor = ComponentClass | QueryDescriptor<any> | ResourceDescriptor<any> | CommandsDescriptor | LocalDescriptor<any>;
 
 /** Extract the instance type from a parameter descriptor */
 type InferParam<P> =
   P extends CommandsDescriptor ? Commands :
+  P extends LocalDescriptor<infer T> ? T :
   P extends ResourceDescriptor<infer T> ? T :
   P extends ComponentClass<infer T> ? T :
   P extends QueryDescriptor<infer T> ? T :
@@ -134,10 +188,10 @@ type InferParam<P> =
 
 /**
  * Map a tuple of descriptors to callback argument types.
- * Resource/Commands descriptors produce a single value; others produce arrays.
+ * Resource/Commands/Local descriptors produce a single value; others produce arrays.
  */
 type InferParams<D extends readonly ParamDescriptor[]> = {
-  [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
+  [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> | LocalDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
 };
 
 // ─── Query() function ───
@@ -150,6 +204,7 @@ type InferParams<D extends readonly ParamDescriptor[]> = {
  * - `Query(Position, Hp)` → fetch both as tuple → `[Position, Hp][]`
  * - `Query(Position, With(Enemy))` → fetch Position, filter by Enemy → `Position[]`
  * - `Query(Position, Hp, With(Enemy))` → fetch both as tuple, filter by Enemy → `[Position, Hp][]`
+ * - `Query(Position, Entity)` → fetch Position + entity handle → `[Position, Entity][]`
  *
  * Old filter-as-first-arg syntax is also supported:
  * - `Query(With(Position), Without(Health))` → `Position[]`
@@ -203,10 +258,15 @@ export function Query(
 ): QueryDescriptor<any> {
   const fetches: ComponentClass[] = [];
   const filters: QueryFilter[] = [];
+  const entityPositions = new Set<number>();
 
   for (const arg of args) {
     if (typeof arg === 'function') {
+      const idx = fetches.length;
       fetches.push(arg as ComponentClass);
+      if (arg === (Entity as unknown)) {
+        entityPositions.add(idx);
+      }
     } else if (arg && typeof arg === 'object') {
       const f = arg as QueryFilter;
       // If filter has 'component' property and is With/Added/Changed and no fetches yet,
@@ -221,7 +281,7 @@ export function Query(
     }
   }
 
-  return new QueryDescriptor(fetches, filters);
+  return new QueryDescriptor(fetches, filters, entityPositions);
 }
 
 // ─── params() function ───
@@ -264,6 +324,8 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
   private resourceEntries: { idx: number; descriptor: ResourceDescriptor }[];
   // Pre-grouped CommandsDescriptor indices
   private commandsIndices: number[];
+  // Pre-grouped LocalDescriptor entries
+  private localEntries: { idx: number; descriptor: LocalDescriptor }[];
 
   constructor(descriptors: ParamDescriptor[]) {
     this.descriptors = descriptors;
@@ -271,9 +333,12 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
     this.queryIndices = [];
     this.resourceEntries = [];
     this.commandsIndices = [];
+    this.localEntries = [];
     for (let i = 0; i < descriptors.length; i++) {
       if (descriptors[i] instanceof CommandsDescriptor) {
         this.commandsIndices.push(i);
+      } else if (descriptors[i] instanceof LocalDescriptor) {
+        this.localEntries.push({ idx: i, descriptor: descriptors[i] as LocalDescriptor });
       } else if (descriptors[i] instanceof ResourceDescriptor) {
         this.resourceEntries.push({ idx: i, descriptor: descriptors[i] as ResourceDescriptor });
       } else if (descriptors[i] instanceof QueryDescriptor) {
@@ -288,11 +353,14 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * Create a system that collects matching entities' components into arrays.
    * Plain ComponentClass descriptors are batched into a single joint query.
    * Each QueryDescriptor runs independently (filters are scoped).
-   * Resource descriptors inject single values from the World.
+   * Resource/Local descriptors inject single values.
    */
   system(fn: (...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, resourceEntries, commandsIndices } = this;
+    const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
+
+    // Per-closure cache for Local descriptors (lazy init on first run)
+    const localCache: { idx: number; value: unknown }[] = [];
 
     return (world: World) => {
       const args: unknown[] = new Array(totalArgs);
@@ -300,6 +368,16 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
       // Resolve Commands parameter
       for (const idx of commandsIndices) {
         args[idx] = world.commands;
+      }
+
+      // Resolve Local parameters (lazy init, cache persists across frames)
+      for (const { idx, descriptor } of localEntries) {
+        let entry = localCache.find((e) => e.idx === idx);
+        if (!entry) {
+          entry = { idx, value: descriptor.init() };
+          localCache.push(entry);
+        }
+        args[idx] = entry.value;
       }
 
       // Resolve resource parameters
@@ -340,8 +418,10 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * or the first QueryDescriptor.
    */
   systemWithEntity(fn: (entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, resourceEntries, commandsIndices } = this;
+    const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
+
+    const localCache: { idx: number; value: unknown }[] = [];
 
     return (world: World) => {
       const ids: number[] = [];
@@ -350,6 +430,16 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
       // Resolve Commands parameter
       for (const idx of commandsIndices) {
         args[idx] = world.commands;
+      }
+
+      // Resolve Local parameters
+      for (const { idx, descriptor } of localEntries) {
+        let entry = localCache.find((e) => e.idx === idx);
+        if (!entry) {
+          entry = { idx, value: descriptor.init() };
+          localCache.push(entry);
+        }
+        args[idx] = entry.value;
       }
 
       // Resolve resource parameters
@@ -393,8 +483,10 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * Create a system with World access + entity IDs array + component arrays.
    */
   systemWithWorld(fn: (world: World, entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, resourceEntries, commandsIndices } = this;
+    const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
+
+    const localCache: { idx: number; value: unknown }[] = [];
 
     return (world: World) => {
       const ids: number[] = [];
@@ -403,6 +495,16 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
       // Resolve Commands parameter
       for (const idx of commandsIndices) {
         args[idx] = world.commands;
+      }
+
+      // Resolve Local parameters
+      for (const { idx, descriptor } of localEntries) {
+        let entry = localCache.find((e) => e.idx === idx);
+        if (!entry) {
+          entry = { idx, value: descriptor.init() };
+          localCache.push(entry);
+        }
+        args[idx] = entry.value;
       }
 
       // Resolve resource parameters
@@ -446,7 +548,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
 
 /** Run a QueryDescriptor — multi-fetch returns tuple arrays, single-fetch returns plain arrays */
 function executeQueryDescriptor(world: World, qd: QueryDescriptor): unknown[] {
-  const qe = new QueryEngine(qd.fetches, qd.filters);
+  const qe = new QueryEngine(qd.fetches, qd.filters, qd.entityPositions);
   const items: unknown[] = [];
   if (qd.fetches.length === 1) {
     for (const [, comps] of qe.iter(world)) {
@@ -462,7 +564,7 @@ function executeQueryDescriptor(world: World, qd: QueryDescriptor): unknown[] {
 
 /** Same as above but also collects entity IDs */
 function executeQueryDescriptorWithIds(world: World, qd: QueryDescriptor): { ids: number[]; items: unknown[] } {
-  const qe = new QueryEngine(qd.fetches, qd.filters);
+  const qe = new QueryEngine(qd.fetches, qd.filters, qd.entityPositions);
   const ids: number[] = [];
   const items: unknown[] = [];
   if (qd.fetches.length === 1) {

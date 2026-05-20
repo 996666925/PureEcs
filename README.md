@@ -117,6 +117,19 @@ const sys = params(Query(Position, Hp)).system((rows) => {
 });
 ```
 
+### 系统本地状态：Local
+
+`Local(factory)` 提供按系统隔离的可变状态，首次执行时惰性初始化，后续复用同一实例：
+
+```ts
+import { Local, params } from 'pureecs';
+
+params(Position, Local(() => ({ total: 0 }))).system((positions, acc) => {
+  acc.total += positions.length;
+  console.log(`累计处理: ${acc.total}`);
+});
+```
+
 ### 过滤器：With / Without
 
 ```ts
@@ -224,6 +237,39 @@ app.addSystem(Stages.PostUpdate, audio, { after: [render] });
 // audio 在 render 之后、同一阶段内其他系统之前执行
 ```
 
+## Plugin 机制
+
+Plugin 将系统、资源、阶段等封装为可复用模块：
+
+```ts
+import { App, Plugin, PluginGroup, params, Res } from 'pureecs';
+
+class PhysicsPlugin implements Plugin {
+  build(app: App): void {
+    app.insertResource(new Gravity(9.8));
+    app.addSystem(gravitySystem);
+    app.addSystem(Stages.PreUpdate, collisionSystem);
+  }
+}
+
+class RenderPlugin implements Plugin {
+  build(app: App): void {
+    app.addSystem(Stages.PostUpdate, renderSystem);
+  }
+}
+
+// 单个插件
+new App().addPlugin(new PhysicsPlugin());
+
+// 插件组 — 批量注册
+const plugins = new PluginGroup()
+  .add(new InputPlugin())
+  .add(new PhysicsPlugin())
+  .add(new RenderPlugin());
+
+new App().addPlugin(plugins).update();
+```
+
 ## 资源（Resource）
 
 资源是全局单例数据，以 class 作为标识。通过 `Res()` 注入到系统中：
@@ -255,6 +301,77 @@ function mySystem(world: World): void {
   }
 }
 ```
+
+## 内置资源：Timer
+
+`Timer` 是一个内置资源，用于跟踪经过时间，支持单次和重复模式：
+
+```ts
+import { Timer, TimerMode, ResMut, params } from 'pureecs';
+
+// 插入定时器
+app.insertResource(new Timer(2, TimerMode.Repeating));
+
+// 在系统中使用
+params(ResMut(Timer)).system((timer) => {
+  timer.tick(0.016); // 每帧推进 16ms
+  if (timer.justFinished()) {
+    console.log('每 2 秒触发一次！');
+  }
+});
+```
+
+| 方法 | 描述 |
+|------|------|
+| `tick(delta)` | 推进计时器 |
+| `finished()` | 是否已结束 |
+| `justFinished()` | 是否刚结束（本 tick 内） |
+| `reset()` | 重置为 0 |
+| `fraction()` | 完成比例 [0, 1] |
+| `remaining()` | 剩余时间 |
+| `pause()` / `unpause()` | 暂停/恢复 |
+
+## 内置资源：Time
+
+`Time` 是全局时间资源，提供帧间隔（delta）和总运行时长。添加 `DefaultPlugin` 即可自动注入并每帧更新：
+
+```ts
+import { DefaultPlugin, Res, params } from 'pureecs';
+
+const app = new App();
+app.addPlugin(new DefaultPlugin()); // 自动注入 Time + 每帧更新
+app.addSystem(movement);
+app.update(); // 无需手动传 delta
+```
+
+`DefaultPlugin` 内部做了两件事：
+1. `app.insertResource(new Time())`
+2. 注册 `createTimeSystem()` 到 `Stages.First`，用 `Date.now()` 测量帧间隔
+
+系统中直接读 `Res(Time)`即可：
+
+```ts
+params(Position, Velocity, Res(Time)).system((pos, vel, time) => {
+  for (let i = 0; i < pos.length; i++) {
+    pos[i].x += vel[i].x * time.delta;
+  }
+});
+
+// 变速 / 暂停
+params(Res(Time)).system((time) => {
+  time.relativeSpeed = 0.5; // 慢放
+  time.pause();             // 暂停
+  time.unpause();           // 恢复
+});
+```
+
+| 属性/方法 | 描述 |
+|-----------|------|
+| `update(delta)` | 每帧更新，传入真实秒数 |
+| `delta` | 有效帧间隔（= realDelta × relativeSpeed，暂停时为 0） |
+| `elapsed` | 总运行时长 |
+| `relativeSpeed` | 时间倍速，默认 1.0 |
+| `pause()` / `unpause()` / `paused()` | 暂停/恢复控制 |
 
 ## 命令（Commands）
 
@@ -308,12 +425,17 @@ world.isAlive(e2);              // true
 | `Query()` | 查询描述符 |
 | `Res()` | 资源参数描述符 |
 | `Cmd()` | 命令参数描述符 |
+| `Local()` | 系统本地状态描述符，惰性初始化 |
 | `With()` / `Without()` | 组件存在过滤器 |
 | `Added()` / `Changed()` | 变更跟踪过滤器 |
 | `Mut<T>` | 可变组件引用，标记变更 |
 | `Stages` | 内置阶段：Startup / First / PreUpdate / Update / PostUpdate / Last |
 | `Stage` | 自定义阶段 |
 | `Commands` / `SpawnBuilder` | 延迟世界变更 |
+| `Plugin` / `PluginGroup` / `DefaultPlugin` | 插件机制，`DefaultPlugin` 内置 Time |
+| `createTimeSystem()` | 返回一个用 wall-clock 更新 Time 的系统 |
+| `Timer` / `TimerMode` | 内置定时器资源，单次/重复模式 |
+| `Time` | 全局时间资源，帧 delta + 总时长 + 变速 |
 | `system()` | SystemBuilder 工厂函数 |
 
 ## License

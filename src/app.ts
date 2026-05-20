@@ -1,5 +1,6 @@
 import { World, type SystemFn, type SystemAddOptions } from './world';
 import { type SystemConfig, Stage, SystemBuilder } from './scheduler';
+import type { Plugin } from './plugin';
 
 export { system, type SystemConfig, Stages, Stage } from './scheduler';
 
@@ -66,6 +67,26 @@ export class App {
   /** Insert a resource. */
   insertResource<T>(resource: T): this {
     this.world.insertResource(resource);
+    return this;
+  }
+
+  /**
+   * Add a plugin. Plugins encapsulate reusable logic (systems, resources, stages).
+   * PluginGroup can bundle multiple plugins together.
+   *
+   * @example
+   * ```ts
+   * app.addPlugin(new PhysicsPlugin());
+   *
+   * // Or a group of plugins
+   * app.addPlugin(new PluginGroup()
+   *   .add(new InputPlugin())
+   *   .add(new RenderPlugin())
+   * );
+   * ```
+   */
+  addPlugin(plugin: Plugin): this {
+    plugin.build(this);
     return this;
   }
 

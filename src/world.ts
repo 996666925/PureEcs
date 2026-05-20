@@ -40,6 +40,11 @@ export class World {
     return this.entityAlloc.isAlive(entity);
   }
 
+  /** @internal Get an Entity handle from its raw id */
+  getEntityById(id: number): Entity | null {
+    return this.entityAlloc.getEntity(id);
+  }
+
   // ─── Component operations ───
 
   insertComponent<T>(entity: Entity, component: T): void {

@@ -55,6 +55,13 @@ export class EntityAlloc {
     return entry !== undefined && entry.alive && entry.generation === entity.generation;
   }
 
+  /** Construct an Entity handle from its id (or null if not alive). */
+  getEntity(id: number): Entity | null {
+    const entry = this.entities[id];
+    if (!entry || !entry.alive) return null;
+    return new Entity(id, entry.generation);
+  }
+
   aliveCount(): number {
     let count = 0;
     for (const entry of this.entities) {
