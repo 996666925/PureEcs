@@ -4,7 +4,7 @@
  * Run: npx tsx examples/01-basic.ts
  */
 
-import { App, Stages, World, params } from '../src/index';
+import { App, Cmd, Res, Stages, World, params } from '../src/index';
 
 // ─── Define Components ───
 
@@ -55,11 +55,24 @@ const printSystem = params(Position, Name).system((positions, names) => {
   }
 });
 
+export class TestResource {
+
+}
+
+const testSystem = params(Position, Res(TestResource), Cmd()).system((positions, res, cmd) => {
+
+  console.log(res);
+  console.log(cmd);
+
+});
+
 // ─── Run ───
 
 const app = new App()
   .addStartupSystem(spawnEntities)
   .addSystem(Stages.Startup, movementSystem)
-  .addSystem(printSystem);
-
+  .addSystem(printSystem)
+  .insertResource(new TestResource())
+  .addSystem(testSystem);
+  
 app.update();

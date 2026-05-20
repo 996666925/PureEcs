@@ -1,6 +1,7 @@
 /**
  * params()-based system builder with automatic type inference.
- * Each callback parameter is an array of matching component instances (SoA/AoS).
+ * Each callback parameter is an array of matching component instances (SoA/AoS),
+ * except resource parameters (Res) which are injected as single values.
  *
  * @example
  * ```ts
@@ -23,6 +24,11 @@
  * params(Query(Position, With(Enemy), Without(Player)), Health).system((positions, healths) => {
  *   // positions: Position[], healths: Health[]
  * });
+ *
+ * // Resource parameters — injected as single values
+ * params(Position, Res(GameConfig)).system((positions, config) => {
+ *   // config: GameConfig (single value)
+ * });
  * ```
  */
 
@@ -30,6 +36,7 @@ import type { ComponentClass } from './component';
 import type { QueryFilter } from './query';
 import type { SystemFn } from './scheduler';
 import type { World } from './world';
+import type { Commands } from './commands';
 import { QueryEngine } from './query';
 
 // ─── Type helpers ───
@@ -56,18 +63,81 @@ export class QueryDescriptor<T = unknown> {
   }
 }
 
-/** A parameter descriptor: either a ComponentClass or a QueryDescriptor */
-type ParamDescriptor = ComponentClass | QueryDescriptor<any>;
+// ─── ResourceDescriptor ───
 
-/** Extract the component instance type from a parameter descriptor */
+/**
+ * Describes a resource parameter — injected as a single value (not an array).
+ *
+ * - `Res(MyResource)` → callback receives `MyResource`
+ */
+export class ResourceDescriptor<T = unknown> {
+  readonly resourceType: ComponentClass<T>;
+  /** Phantom — holds the resource type for inference */
+  declare readonly _type?: T;
+
+  constructor(resourceType: ComponentClass<T>) {
+    this.resourceType = resourceType;
+  }
+}
+
+/**
+ * Declare a resource parameter. The resource is injected as a single value
+ * (mutable by reference, same as `world.getResource()`).
+ *
+ * @example
+ * ```ts
+ * params(Position, Res(GameConfig)).system((positions, config) => {
+ *   // config: GameConfig (single value)
+ * });
+ * ```
+ */
+export function Res<T>(resourceType: ComponentClass<T>): ResourceDescriptor<T> {
+  return new ResourceDescriptor(resourceType);
+}
+
+// ─── CommandsDescriptor ───
+
+/**
+ * Describes a Commands parameter — injected as a single value.
+ *
+ * - `Cmd()` → callback receives `Commands`
+ */
+export class CommandsDescriptor {
+  /** Phantom — holds the Commands type for inference */
+  declare readonly _type?: Commands;
+}
+
+/**
+ * Declare a Commands parameter. Injects world.commands for deferred mutations.
+ *
+ * @example
+ * ```ts
+ * params(Position, Cmd()).system((positions, commands) => {
+ *   commands.spawn().with(new Position(0, 0));
+ * });
+ * ```
+ */
+export function Cmd(): CommandsDescriptor {
+  return new CommandsDescriptor();
+}
+
+/** A parameter descriptor: ComponentClass, QueryDescriptor, ResourceDescriptor, or CommandsDescriptor */
+type ParamDescriptor = ComponentClass | QueryDescriptor<any> | ResourceDescriptor<any> | CommandsDescriptor;
+
+/** Extract the instance type from a parameter descriptor */
 type InferParam<P> =
+  P extends CommandsDescriptor ? Commands :
+  P extends ResourceDescriptor<infer T> ? T :
   P extends ComponentClass<infer T> ? T :
   P extends QueryDescriptor<infer T> ? T :
   never;
 
-/** Map a tuple of ParamDescriptor to a tuple of component instance arrays */
+/**
+ * Map a tuple of descriptors to callback argument types.
+ * Resource/Commands descriptors produce a single value; others produce arrays.
+ */
 type InferParams<D extends readonly ParamDescriptor[]> = {
-  [K in keyof D]: InferParam<D[K]>[];
+  [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
 };
 
 // ─── Query() function ───
@@ -190,14 +260,23 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
   private plainGroup: { idx: number; type: ComponentClass }[];
   // Pre-grouped QueryDescriptor indices
   private queryIndices: number[];
+  // Pre-grouped ResourceDescriptor entries
+  private resourceEntries: { idx: number; descriptor: ResourceDescriptor }[];
+  // Pre-grouped CommandsDescriptor indices
+  private commandsIndices: number[];
 
   constructor(descriptors: ParamDescriptor[]) {
     this.descriptors = descriptors;
-    // Separate plain ComponentClass descriptors from QueryDescriptors
     this.plainGroup = [];
     this.queryIndices = [];
+    this.resourceEntries = [];
+    this.commandsIndices = [];
     for (let i = 0; i < descriptors.length; i++) {
-      if (descriptors[i] instanceof QueryDescriptor) {
+      if (descriptors[i] instanceof CommandsDescriptor) {
+        this.commandsIndices.push(i);
+      } else if (descriptors[i] instanceof ResourceDescriptor) {
+        this.resourceEntries.push({ idx: i, descriptor: descriptors[i] as ResourceDescriptor });
+      } else if (descriptors[i] instanceof QueryDescriptor) {
         this.queryIndices.push(i);
       } else {
         this.plainGroup.push({ idx: i, type: descriptors[i] as ComponentClass });
@@ -209,13 +288,24 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * Create a system that collects matching entities' components into arrays.
    * Plain ComponentClass descriptors are batched into a single joint query.
    * Each QueryDescriptor runs independently (filters are scoped).
+   * Resource descriptors inject single values from the World.
    */
   system(fn: (...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices } = this;
+    const { plainGroup, queryIndices, resourceEntries, commandsIndices } = this;
     const totalArgs = this.descriptors.length;
 
     return (world: World) => {
       const args: unknown[] = new Array(totalArgs);
+
+      // Resolve Commands parameter
+      for (const idx of commandsIndices) {
+        args[idx] = world.commands;
+      }
+
+      // Resolve resource parameters
+      for (const { idx, descriptor } of resourceEntries) {
+        args[idx] = world.getResource(descriptor.resourceType);
+      }
 
       // Batch query for all plain ComponentClass descriptors
       if (plainGroup.length > 0) {
@@ -250,12 +340,22 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * or the first QueryDescriptor.
    */
   systemWithEntity(fn: (entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices } = this;
+    const { plainGroup, queryIndices, resourceEntries, commandsIndices } = this;
     const totalArgs = this.descriptors.length;
 
     return (world: World) => {
       const ids: number[] = [];
       const args: unknown[] = new Array(totalArgs);
+
+      // Resolve Commands parameter
+      for (const idx of commandsIndices) {
+        args[idx] = world.commands;
+      }
+
+      // Resolve resource parameters
+      for (const { idx, descriptor } of resourceEntries) {
+        args[idx] = world.getResource(descriptor.resourceType);
+      }
 
       // Batch query for all plain ComponentClass descriptors
       if (plainGroup.length > 0) {
@@ -293,12 +393,22 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * Create a system with World access + entity IDs array + component arrays.
    */
   systemWithWorld(fn: (world: World, entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices } = this;
+    const { plainGroup, queryIndices, resourceEntries, commandsIndices } = this;
     const totalArgs = this.descriptors.length;
 
     return (world: World) => {
       const ids: number[] = [];
       const args: unknown[] = new Array(totalArgs);
+
+      // Resolve Commands parameter
+      for (const idx of commandsIndices) {
+        args[idx] = world.commands;
+      }
+
+      // Resolve resource parameters
+      for (const { idx, descriptor } of resourceEntries) {
+        args[idx] = world.getResource(descriptor.resourceType);
+      }
 
       // Batch query for all plain ComponentClass descriptors
       if (plainGroup.length > 0) {

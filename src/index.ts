@@ -5,7 +5,7 @@ export { World, type SystemFn, type SystemAddOptions } from './world';
 export { App, system, Stages, Stage, type SystemConfig } from './app';
 
 // System builder
-export { params, Query, QueryDescriptor, ParamsBuilder } from './system';
+export { params, Query, QueryDescriptor, ParamsBuilder, Res, ResourceDescriptor, Cmd, CommandsDescriptor } from './system';
 
 // Scheduler
 export { Scheduler, SystemBuilder, CircularDependencyError } from './scheduler';

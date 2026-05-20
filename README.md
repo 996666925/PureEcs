@@ -5,7 +5,7 @@
 ## 快速开始
 
 ```ts
-import { App, World, params, Query, With, Without } from 'pureecs';
+import { App, World, params, Query, With, Without, Res, Cmd } from 'pureecs';
 
 // 1. 定义组件（普通 class）
 class Position {
@@ -90,6 +90,17 @@ const system = params(Position, Velocity).system((positions, velocities) => {
 });
 ```
 
+`params()` 还支持注入资源和命令，以单值（非数组）传入回调：
+
+```ts
+const system = params(Position, Velocity, Res(DeltaTime), Cmd())
+  .system((positions, velocities, dt, commands) => {
+    // positions: Position[], velocities: Velocity[]
+    // dt: DeltaTime (单值，来自 world.getResource())
+    // commands: Commands (单值，来自 world.commands)
+  });
+```
+
 ## 查询与过滤
 
 ### 多组件合并查询（Tuple AoS）
@@ -151,9 +162,9 @@ if (scoreMut) {
 
 | 方法 | 额外参数 | 适用场景 |
 |------|---------|---------|
-| `.system(fn)` | 组件数组 | 只操作组件数据 |
-| `.systemWithEntity(fn)` | `entityIds` + 组件数组 | 需要实体 ID |
-| `.systemWithWorld(fn)` | `world` + `entityIds` + 组件数组 | 需要访问 World |
+| `.system(fn)` | 组件数组 + 资源/命令单值 | 操作组件、读资源、发命令 |
+| `.systemWithEntity(fn)` | `entityIds` + 组件数组 + 资源/命令 | 需要实体 ID |
+| `.systemWithWorld(fn)` | `world` + `entityIds` + 组件数组 + 资源/命令 | 需要访问 World |
 
 ```ts
 // 需要实体 ID — 配合 systemWithEntity
@@ -165,14 +176,16 @@ params(Lifetime, Name).systemWithEntity((ids, lifetimes, names) => {
   }
 });
 
-// 需要访问 World（例如 despawn、读资源）— 用 systemWithWorld
-params(Lifetime, Name).systemWithWorld((world, ids, lifetimes, names) => {
-  for (let i = 0; i < ids.length; i++) {
-    if (lifetimes[i].ticks <= 0) {
-      world.commands.despawn({ id: ids[i], generation: 0 } as Entity);
+// 注入资源 + 命令，避免手动取 world
+params(Lifetime, Name, Res(DeltaTime), Cmd())
+  .systemWithEntity((ids, lifetimes, names, dt, commands) => {
+    for (let i = 0; i < ids.length; i++) {
+      lifetimes[i].ticks -= dt.value;
+      if (lifetimes[i].ticks <= 0) {
+        commands.despawn({ id: ids[i], generation: 0 } as Entity);
+      }
     }
-  }
-});
+  });
 ```
 
 ## 阶段调度
@@ -213,17 +226,28 @@ app.addSystem(Stages.PostUpdate, audio, { after: [render] });
 
 ## 资源（Resource）
 
-资源是全局单例数据，以 class 作为标识：
+资源是全局单例数据，以 class 作为标识。通过 `Res()` 注入到系统中：
 
 ```ts
 class GameConfig {
   constructor(public gravity: number = 9.8) {}
 }
+class Score {
+  constructor(public value: number = 0) {}
+}
 
 // 插入
 app.insertResource(new GameConfig(9.8));
+app.insertResource(new Score());
 
-// 在系统中读取
+// 在系统中通过 Res() 注入（单值）
+params(Position, Res(GameConfig)).system((positions, config) => {
+  for (const pos of positions) {
+    pos.y -= config.gravity;
+  }
+});
+
+// 也可以直接通过 world 访问
 function mySystem(world: World): void {
   const config = world.getResource(GameConfig);
   if (config) {
@@ -234,7 +258,18 @@ function mySystem(world: World): void {
 
 ## 命令（Commands）
 
-Commands 提供延迟 World 变更机制——在系统执行期间排队，在阶段结束后批量应用，避免借用冲突：
+Commands 提供延迟 World 变更机制——在系统执行期间排队，在阶段结束后批量应用，避免借用冲突。通过 `Cmd()` 注入：
+
+```ts
+// 注入 Commands
+params(Position, Cmd()).system((positions, commands) => {
+  commands.spawn()
+    .with(new Position(10, 5))
+    .with(new Velocity(-1, 0));
+});
+```
+
+也可以直接通过 world 访问：
 
 ```ts
 function spawnEnemy(world: World): void {
@@ -271,6 +306,8 @@ world.isAlive(e2);              // true
 | `Entity` | 实体标识符 |
 | `params()` | 系统构建器函数 |
 | `Query()` | 查询描述符 |
+| `Res()` | 资源参数描述符 |
+| `Cmd()` | 命令参数描述符 |
 | `With()` / `Without()` | 组件存在过滤器 |
 | `Added()` / `Changed()` | 变更跟踪过滤器 |
 | `Mut<T>` | 可变组件引用，标记变更 |
