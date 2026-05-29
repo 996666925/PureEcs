@@ -8,7 +8,7 @@ export { App, system, Stages, Stage, type SystemConfig } from './app';
 export { type Plugin, PluginGroup, DefaultPlugin, createTimeSystem } from './plugin';
 
 // System builder
-export { params, Query, QueryDescriptor, ParamsBuilder, Res, ResourceDescriptor, Cmd, CommandsDescriptor, Local, LocalDescriptor } from './system';
+export { params, Query, Single, QueryDescriptor, SingleDescriptor, ParamsBuilder, Res, ResourceDescriptor, Cmd, CommandsDescriptor, Local, LocalDescriptor } from './system';
 
 // Scheduler
 export { Scheduler, SystemBuilder, CircularDependencyError } from './scheduler';

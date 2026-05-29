@@ -85,6 +85,35 @@ export class QueryDescriptor<T = unknown> {
   }
 }
 
+// ─── SingleDescriptor ───
+
+/**
+ * Describes a single-result query: fetches components from only the first
+ * matching entity, injected as a single value (not an array).
+ *
+ * - `Single(Position)` → callback receives `Position | undefined`
+ * - `Single(Position, Hp)` → callback receives `[Position, Hp] | undefined`
+ *
+ * Use `Entity` as a fetch to include the entity handle:
+ * `Single(Position, Entity)` → `[Position, Entity] | undefined`
+ */
+export class SingleDescriptor<T = unknown> {
+  readonly fetches: ComponentClass[];
+  readonly filters: QueryFilter[];
+  /** Positions in fetches that are Entity (not component) */
+  readonly entityPositions: ReadonlySet<number>;
+  /** Phantom — holds the component type for inference */
+  declare readonly _type?: T;
+  /** Brand to distinguish from QueryDescriptor in structural typing */
+  declare readonly __kind: 'single';
+
+  constructor(fetches: ComponentClass[], filters: QueryFilter[], entityPositions: ReadonlySet<number> = new Set()) {
+    this.fetches = fetches;
+    this.filters = filters;
+    this.entityPositions = entityPositions;
+  }
+}
+
 // ─── ResourceDescriptor ───
 
 /**
@@ -176,24 +205,25 @@ export function Local<T>(init: () => T): LocalDescriptor<T> {
   return new LocalDescriptor(init);
 }
 
-/** A parameter descriptor: ComponentClass, QueryDescriptor, ResourceDescriptor, CommandsDescriptor, or LocalDescriptor */
-type ParamDescriptor = ComponentClass | QueryDescriptor<any> | ResourceDescriptor<any> | CommandsDescriptor | LocalDescriptor<any>;
+/** A parameter descriptor: ComponentClass, QueryDescriptor, SingleDescriptor, ResourceDescriptor, CommandsDescriptor, or LocalDescriptor */
+type ParamDescriptor = ComponentClass | QueryDescriptor<any> | SingleDescriptor<any> | ResourceDescriptor<any> | CommandsDescriptor | LocalDescriptor<any>;
 
 /** Extract the instance type from a parameter descriptor */
 type InferParam<P> =
   P extends CommandsDescriptor ? Commands :
   P extends LocalDescriptor<infer T> ? T :
   P extends ResourceDescriptor<infer T> ? T :
+  P extends SingleDescriptor<infer T> ? T :
   P extends ComponentClass<infer T> ? T :
   P extends QueryDescriptor<infer T> ? T :
   never;
 
 /**
  * Map a tuple of descriptors to callback argument types.
- * Resource/Commands/Local descriptors produce a single value; others produce arrays.
+ * Resource/Commands/Local/Single descriptors produce a single value; others produce arrays.
  */
 type InferParams<D extends readonly ParamDescriptor[]> = {
-  [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> | LocalDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
+  [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> | LocalDescriptor<any> | SingleDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
 };
 
 // ─── Query() function ───
@@ -286,6 +316,83 @@ export function Query(
   return new QueryDescriptor(fetches, filters, entityPositions);
 }
 
+// ─── Single() function ───
+
+/**
+ * Create a single-result query descriptor. Like Query() but only returns the
+ * first matching entity's components as a single value (not an array).
+ *
+ * - `Single(Position)` → `Position | undefined`
+ * - `Single(Position, Hp)` → `[Position, Hp] | undefined`
+ * - `Single(Position, With(Enemy))` → `Position | undefined`
+ * - `Single(Position, Entity)` → `[Position, Entity] | undefined`
+ */
+
+// 2-component multi-fetch (no filters)
+export function Single<C1 extends ComponentClass, C2 extends ComponentClass>(
+  c1: C1, c2: C2,
+): SingleDescriptor<[Instance<C1>, Instance<C2>]>;
+
+// 3-component multi-fetch (no filters)
+export function Single<C1 extends ComponentClass, C2 extends ComponentClass, C3 extends ComponentClass>(
+  c1: C1, c2: C2, c3: C3,
+): SingleDescriptor<[Instance<C1>, Instance<C2>, Instance<C3>]>;
+
+// 4-component multi-fetch (no filters)
+export function Single<C1 extends ComponentClass, C2 extends ComponentClass, C3 extends ComponentClass, C4 extends ComponentClass>(
+  c1: C1, c2: C2, c3: C3, c4: C4,
+): SingleDescriptor<[Instance<C1>, Instance<C2>, Instance<C3>, Instance<C4>]>;
+
+// 2-component multi-fetch + filters
+export function Single<C1 extends ComponentClass, C2 extends ComponentClass>(
+  c1: C1, c2: C2, ...filters: QueryFilter[]
+): SingleDescriptor<[Instance<C1>, Instance<C2>]>;
+
+// 3-component multi-fetch + filters
+export function Single<C1 extends ComponentClass, C2 extends ComponentClass, C3 extends ComponentClass>(
+  c1: C1, c2: C2, c3: C3, ...filters: QueryFilter[]
+): SingleDescriptor<[Instance<C1>, Instance<C2>, Instance<C3>]>;
+
+// Single component (no filters)
+export function Single<C1 extends ComponentClass>(
+  c1: C1,
+): SingleDescriptor<Instance<C1>>;
+
+// Single component + filters
+export function Single<C1 extends ComponentClass>(
+  c1: C1, ...filters: QueryFilter[]
+): SingleDescriptor<Instance<C1>>;
+
+// Implementation
+export function Single(
+  ...args: (ComponentClass<any> | QueryFilter)[]
+): SingleDescriptor<any> {
+  const fetches: ComponentClass[] = [];
+  const filters: QueryFilter[] = [];
+  const entityPositions = new Set<number>();
+
+  for (const arg of args) {
+    if (typeof arg === 'function') {
+      const idx = fetches.length;
+      fetches.push(arg as ComponentClass);
+      if (arg === (Entity as unknown)) {
+        entityPositions.add(idx);
+      }
+    } else if (arg && typeof arg === 'object') {
+      const f = arg as QueryFilter;
+      if (
+        (f.type === 'with' || f.type === 'added' || f.type === 'changed') &&
+        fetches.length === 0
+      ) {
+        fetches.push(f.component);
+      }
+      filters.push(f);
+    }
+  }
+
+  return new SingleDescriptor(fetches, filters, entityPositions);
+}
+
 // ─── params() function ───
 
 /**
@@ -328,6 +435,8 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
   private plainGroup: { idx: number; type: ComponentClass }[];
   // Pre-grouped QueryDescriptor indices
   private queryIndices: number[];
+  // Pre-grouped SingleDescriptor entries
+  private singleEntries: { idx: number; descriptor: SingleDescriptor }[];
   // Pre-grouped ResourceDescriptor entries
   private resourceEntries: { idx: number; descriptor: ResourceDescriptor }[];
   // Pre-grouped CommandsDescriptor indices
@@ -339,6 +448,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
     this.descriptors = descriptors;
     this.plainGroup = [];
     this.queryIndices = [];
+    this.singleEntries = [];
     this.resourceEntries = [];
     this.commandsIndices = [];
     this.localEntries = [];
@@ -349,6 +459,8 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         this.localEntries.push({ idx: i, descriptor: descriptors[i] as LocalDescriptor });
       } else if (descriptors[i] instanceof ResourceDescriptor) {
         this.resourceEntries.push({ idx: i, descriptor: descriptors[i] as ResourceDescriptor });
+      } else if (descriptors[i] instanceof SingleDescriptor) {
+        this.singleEntries.push({ idx: i, descriptor: descriptors[i] as SingleDescriptor });
       } else if (descriptors[i] instanceof QueryDescriptor) {
         this.queryIndices.push(i);
       } else {
@@ -364,13 +476,19 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * Resource/Local descriptors inject single values.
    */
   system(fn: (...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
+    const { plainGroup, queryIndices, singleEntries, resourceEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
 
     // Pre-resolve QueryDescriptors to engines (reusable each frame)
     const queryDescs = queryIndices.map((idx) => ({
       idx,
       qd: this.descriptors[idx] as QueryDescriptor,
+    }));
+
+    // Pre-resolve SingleDescriptors
+    const singleDescs = singleEntries.map(({ idx, descriptor }) => ({
+      idx,
+      sd: descriptor,
     }));
 
     // Per-closure cache for Local descriptors (lazy init on first run)
@@ -419,6 +537,11 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         );
       }
 
+      // Execute Single descriptors — inject first match as single value
+      for (const { idx, sd } of singleDescs) {
+        args[idx] = executeSingleDescriptor(world, sd);
+      }
+
       fn(...(args as InferParams<D>));
     };
   }
@@ -430,7 +553,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * only aligns with its own array. Use `Query(Entity, Component)` for guaranteed alignment.
    */
   systemWithWorld(fn: (world: World, entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, resourceEntries, commandsIndices, localEntries } = this;
+    const { plainGroup, queryIndices, singleEntries, resourceEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
 
     const localCache: { idx: number; value: unknown }[] = [];
@@ -484,6 +607,20 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         args[idx] = result.items;
       }
 
+      // Execute Single descriptors
+      for (const { idx, descriptor } of singleEntries) {
+        const result = executeSingleDescriptorWithId(world, descriptor);
+        if (result !== undefined) {
+          const [firstId, value] = result;
+          if (ids.length === 0 && idx === singleEntries[0].idx) {
+            ids.push(firstId);
+          }
+          args[idx] = value;
+        } else {
+          args[idx] = undefined;
+        }
+      }
+
       fn(world, ids, ...(args as InferParams<D>));
     };
   }
@@ -524,4 +661,32 @@ function executeQueryDescriptorWithIds(world: World, qd: QueryDescriptor): { ids
     }
   }
   return { ids, items };
+}
+
+// ─── SingleDescriptor execution ───
+
+/** Run a SingleDescriptor — returns only the first matching entity's components as a single value */
+function executeSingleDescriptor(world: World, sd: SingleDescriptor): unknown {
+  const qe = new QueryEngine(sd.fetches, sd.filters, sd.entityPositions);
+  const first = qe.iter(world).next();
+  if (first.done) return undefined;
+
+  const [, comps] = first.value;
+  if (sd.fetches.length === 1) {
+    return comps[0];            // single component: T
+  }
+  return comps;                 // multi component: [T1, T2, ...]
+}
+
+/** Same as above but also returns the entity ID */
+function executeSingleDescriptorWithId(world: World, sd: SingleDescriptor): [number, unknown] | undefined {
+  const qe = new QueryEngine(sd.fetches, sd.filters, sd.entityPositions);
+  const first = qe.iter(world).next();
+  if (first.done) return undefined;
+
+  const [id, comps] = first.value;
+  if (sd.fetches.length === 1) {
+    return [id, comps[0]];       // single component
+  }
+  return [id, comps];            // multi component
 }
