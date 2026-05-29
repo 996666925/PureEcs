@@ -2,14 +2,12 @@
   "name": "pureecs",
   "version": "0.0.0",
   "type": "module",
-  "main": "./dist/pureecs.cjs",
   "module": "./dist/pureecs.mjs",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/pureecs.mjs",
-      "require": "./dist/pureecs.cjs",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/src/index.d.ts"
     }
   },
   "files": [
