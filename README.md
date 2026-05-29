@@ -5,7 +5,7 @@
 ## 快速开始
 
 ```ts
-import { App, World, params, Query, With, Without, Res, Cmd } from 'pureecs';
+import { App, World, params, Query, Single, With, Without, Res, Cmd } from 'pureecs';
 
 // 1. 定义组件（普通 class）
 class Position {
@@ -129,6 +129,35 @@ import { Local, params } from 'pureecs';
 params(Position, Local(() => ({ total: 0 }))).system((positions, acc) => {
   acc.total += positions.length;
   console.log(`累计处理: ${acc.total}`);
+});
+```
+
+### 单实体查询：Single
+
+`Single()` 与 `Query()` 用法完全一致，但只取**第一个**匹配实体的组件，作为单值（可能为 `undefined`）：
+
+```ts
+import { Single, With } from 'pureecs';
+
+// 单组件
+params(Single(Player)).system((player) => {
+  // player: Player | undefined
+  if (player) console.log(`玩家位置: (${player.x}, ${player.y})`);
+});
+
+// 多组件元组
+params(Single(Position, Velocity)).system((movement) => {
+  // movement: [Position, Velocity] | undefined
+  if (movement) {
+    const [pos, vel] = movement;
+    pos.x += vel.x;
+  }
+});
+
+// 带过滤器
+params(Single(Camera, With(Active))).system((camera) => {
+  // camera: Camera | undefined
+  if (camera) camera.zoom += 0.1;
 });
 ```
 
@@ -261,6 +290,51 @@ const plugins = new PluginGroup()
 
 new App().addPlugin(plugins).update();
 ```
+
+## 输入系统（Input）
+
+`InputPlugin` 提供 Bevy 风格的键盘和鼠标输入追踪，默认监听 `document`，自动维护三种状态：
+
+- **pressed** — 当前是否按住
+- **justPressed** — 当前帧刚按下
+- **justReleased** — 当前帧刚松开
+
+```ts
+import { App, InputPlugin, params, Res, Input, MousePosition, MouseWheel, InputTarget } from 'pureecs';
+
+// 默认监听 document
+const app = new App()
+  .addPlugin(new InputPlugin());
+
+// 或指定目标元素（如 canvas）
+app.insertResource(new InputTarget(canvas));
+// 可选阻止默认事件（如滚轮缩放）
+app.insertResource(new InputTarget(canvas, /* preventDefault */ true));
+
+// 在系统中通过 Res() 读取输入
+params(Res(Input), Res(MousePosition), Res(MouseWheel))
+  .system((keys, cursor, wheel) => {
+    // keys: Input<KeyCode> — 拥有完整的 KeyCode 自动完成
+    if (keys.justPressed('Space'))        jump();
+    if (keys.pressed('KeyW'))             moveForward();
+    if (keys.anyPressed(['KeyA', 'KeyD'])) strafe();
+
+    // 鼠标
+    lookAt(cursor.x, cursor.y);
+
+    // 滚轮
+    if (wheel.y !== 0) zoom(wheel.y);
+  });
+```
+
+| 类 | 类型 | 描述 |
+|---|---|---|
+| `Input<KeyCode>` | resource | 键盘输入状态，`KeyCode` 为 `'KeyW'`、`'Space'`、`'ArrowUp'` 等 ~80 个标准键的联合类型 |
+| `Input<MouseButton>` | resource | 鼠标按钮状态，`MouseButton` = `'Left' \| 'Right' \| 'Middle' \| 'Back' \| 'Forward'` |
+| `MousePosition` | resource | 当前光标坐标 + `inBounds` |
+| `MouseWheel` | resource | 帧内累积滚轮增量 |
+| `InputTarget` | resource（可选） | 指定事件监听目标元素，不设置则默认 `document` |
+| `InputPlugin` | plugin | 注册所有 input 资源 + 自动监听 + 清理 |
 
 ## 资源（Resource）
 
@@ -414,7 +488,8 @@ world.isAlive(e2);              // true
 | `World` | ECS 核心：实体、组件、资源、系统调度 |
 | `Entity` | 实体标识符 |
 | `params()` | 系统构建器函数 |
-| `Query()` | 查询描述符 |
+| `Query()` | 多实体查询描述符，返回数组 |
+| `Single()` | 单实体查询描述符，返回单值 (或 `undefined`) |
 | `Res()` | 资源参数描述符 |
 | `Cmd()` | 命令参数描述符 |
 | `Local()` | 系统本地状态描述符，惰性初始化 |
@@ -425,6 +500,11 @@ world.isAlive(e2);              // true
 | `Stage` | 自定义阶段 |
 | `Commands` / `SpawnBuilder` | 延迟世界变更 |
 | `Plugin` / `PluginGroup` / `DefaultPlugin` | 插件机制，`DefaultPlugin` 内置 Time |
+| `Input` | 泛型输入追踪器，记录 pressed/justPressed/justReleased |
+| `InputPlugin` | 输入插件，默认监听 document 上的键鼠事件 |
+| `InputTarget` | 可选资源，指定事件监听目标元素 |
+| `MousePosition` / `MouseWheel` | 鼠标位置 / 滚轮增量资源 |
+| `KeyCode` / `MouseButton` | 键码 / 鼠标按钮类型 |
 | `createTimeSystem()` | 返回一个用 wall-clock 更新 Time 的系统 |
 | `Timer` / `TimerMode` | 内置定时器资源，单次/重复模式 |
 | `Time` | 全局时间资源，帧 delta + 总时长 + 变速 |

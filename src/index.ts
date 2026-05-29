@@ -39,3 +39,7 @@ export { SparseSet } from './storage';
 
 // Timer
 export { Timer, TimerMode, Time } from './timer';
+
+// Input
+export { Input, InputPlugin, InputTarget, MouseWheel, MousePosition, mapButton } from './input';
+export type { KeyCode, MouseButton } from './input';
