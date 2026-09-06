@@ -6,6 +6,7 @@
  */
 
 export type SystemFn = (world: import('./world').World) => void;
+export type SystemCondition = (world: import('./world').World) => boolean;
 
 // ─── Stages ───
 
@@ -18,6 +19,36 @@ export class Stage {
 
   constructor(label: string) {
     this.label = label;
+  }
+
+  toString(): string {
+    return this.label;
+  }
+}
+
+/** A named group used to apply shared conditions and ordering to systems. */
+export class SystemSet {
+  readonly label: string;
+  private active = true;
+  private conditions: SystemCondition[] = [];
+
+  constructor(label: string) {
+    this.label = label;
+  }
+
+  runIf(condition: SystemCondition): this {
+    this.conditions.push(condition);
+    return this;
+  }
+
+  enabled(enabled = true): this {
+    this.active = enabled;
+    return this;
+  }
+
+  /** @internal */
+  shouldRun(world: import('./world').World): boolean {
+    return this.active && this.conditions.every((condition) => condition(world));
   }
 
   toString(): string {
@@ -57,6 +88,11 @@ export interface SystemConfig {
   stage: Stage;
   before: SystemFn[];
   after: SystemFn[];
+  runIf?: SystemCondition[];
+  enabled?: boolean;
+  sets?: SystemSet[];
+  beforeSets?: SystemSet[];
+  afterSets?: SystemSet[];
 }
 
 // ─── Circular dependency error ───
@@ -174,6 +210,12 @@ export class Scheduler {
     return this.cachedUpdate;
   }
 
+  shouldRun(config: SystemConfig, world: import('./world').World): boolean {
+    if (config.enabled === false) return false;
+    if (config.runIf && !config.runIf.every((condition) => condition(world))) return false;
+    return config.sets?.every((set) => set.shouldRun(world)) ?? true;
+  }
+
   // ─── Internal ───
 
   private invalidateCache(): void {
@@ -218,6 +260,24 @@ function topologicalSort(systems: SystemConfig[]): SystemConfig[] {
       if (j !== undefined) {
         adj[i].push(j);
         inDegree[j]++;
+      }
+    }
+
+    for (const afterSet of sys.afterSets ?? []) {
+      for (let j = 0; j < systems.length; j++) {
+        if (systems[j].sets?.includes(afterSet)) {
+          adj[j].push(i);
+          inDegree[i]++;
+        }
+      }
+    }
+
+    for (const beforeSet of sys.beforeSets ?? []) {
+      for (let j = 0; j < systems.length; j++) {
+        if (systems[j].sets?.includes(beforeSet)) {
+          adj[i].push(j);
+          inDegree[j]++;
+        }
       }
     }
   }
@@ -270,7 +330,17 @@ export class SystemBuilder {
   private config: SystemConfig;
 
   constructor(fn: SystemFn) {
-    this.config = { fn, stage: Stages.Update, before: [], after: [] };
+    this.config = {
+      fn,
+      stage: Stages.Update,
+      before: [],
+      after: [],
+      runIf: [],
+      enabled: true,
+      sets: [],
+      beforeSets: [],
+      afterSets: [],
+    };
   }
 
   /** Place this system in a specific stage. */
@@ -291,6 +361,36 @@ export class SystemBuilder {
     return this;
   }
 
+  /** Run only when every supplied condition returns true. */
+  runIf(condition: SystemCondition): this {
+    this.config.runIf!.push(condition);
+    return this;
+  }
+
+  /** Enable or disable this system without removing it from the schedule. */
+  enabled(enabled = true): this {
+    this.config.enabled = enabled;
+    return this;
+  }
+
+  /** Add this system to a set with shared conditions. */
+  inSet(set: SystemSet): this {
+    this.config.sets!.push(set);
+    return this;
+  }
+
+  /** Run after all systems in a set within the same stage. */
+  afterSet(set: SystemSet): this {
+    this.config.afterSets!.push(set);
+    return this;
+  }
+
+  /** Run before all systems in a set within the same stage. */
+  beforeSet(set: SystemSet): this {
+    this.config.beforeSets!.push(set);
+    return this;
+  }
+
   /** Shorthand for .inStage(Stages.Startup) */
   startup(): this {
     this.config.stage = Stages.Startup;
@@ -299,6 +399,14 @@ export class SystemBuilder {
 
   /** Get the built config. */
   build(): SystemConfig {
-    return { ...this.config, before: [...this.config.before], after: [...this.config.after] };
+    return {
+      ...this.config,
+      before: [...this.config.before],
+      after: [...this.config.after],
+      runIf: [...this.config.runIf!],
+      sets: [...this.config.sets!],
+      beforeSets: [...this.config.beforeSets!],
+      afterSets: [...this.config.afterSets!],
+    };
   }
 }

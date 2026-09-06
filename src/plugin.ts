@@ -3,7 +3,6 @@ import { Time } from './timer';
 import type { SystemFn } from './scheduler';
 import { Stages } from './scheduler';
 import { params, Res } from './system';
-import { InputPlugin } from './input';
 
 /**
  * A plugin encapsulates reusable logic — systems, resources, stages, etc.
@@ -22,6 +21,7 @@ import { InputPlugin } from './input';
  */
 export interface Plugin {
   build(app: App): void;
+  destroy?(app: App): void;
 }
 
 /**
@@ -49,6 +49,12 @@ export class PluginGroup implements Plugin {
   build(app: App): void {
     for (const plugin of this.plugins) {
       plugin.build(app);
+    }
+  }
+
+  destroy(app: App): void {
+    for (let i = this.plugins.length - 1; i >= 0; i--) {
+      this.plugins[i].destroy?.(app);
     }
   }
 }
@@ -93,6 +99,6 @@ export class DefaultPlugin implements Plugin {
   build(app: App): void {
     app.insertResource(new Time());
     app.addSystem(Stages.First, createTimeSystem());
-    app.addPlugin(new InputPlugin());
   }
+
 }

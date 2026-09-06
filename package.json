@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "test": "pnpm run build && node --test tests/core.test.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {

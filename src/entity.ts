@@ -26,16 +26,19 @@ export class Entity {
 export class EntityAlloc {
   private entities: { generation: number; alive: boolean }[] = [];
   private freeList: number[] = [];
+  private alive = 0;
 
   alloc(): Entity {
     if (this.freeList.length > 0) {
       const id = this.freeList.pop()!;
       const entry = this.entities[id];
       entry.alive = true;
+      this.alive++;
       return new Entity(id, entry.generation);
     }
     const id = this.entities.length;
     this.entities.push({ generation: 0, alive: true });
+    this.alive++;
     return new Entity(id, 0);
   }
 
@@ -47,6 +50,7 @@ export class EntityAlloc {
     entry.alive = false;
     entry.generation += 1;
     this.freeList.push(entity.id);
+    this.alive--;
     return true;
   }
 
@@ -63,10 +67,6 @@ export class EntityAlloc {
   }
 
   aliveCount(): number {
-    let count = 0;
-    for (const entry of this.entities) {
-      if (entry.alive) count++;
-    }
-    return count;
+    return this.alive;
   }
 }

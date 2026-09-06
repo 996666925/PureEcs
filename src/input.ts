@@ -75,8 +75,8 @@ export type MouseButton = 'Left' | 'Right' | 'Middle' | 'Back' | 'Forward';
  * - `justPressed` — first tick of hold (cleared at end of frame).
  * - `justReleased` — first tick of release (cleared at end of frame).
  *
- * Stored as a **resource** in the World:
- * `Input<KeyCode>` for keyboard, `Input<MouseButton>` for mouse.
+ * `KeyboardInput` and `MouseInput` are the concrete resources stored in the
+ * World. This generic base class is also available for custom input trackers.
  */
 export class Input<T> {
   private _pressed = new Set<T>();
@@ -131,6 +131,12 @@ export class Input<T> {
     this._justReleased.clear();
   }
 }
+
+/** Keyboard input resource. Kept distinct from MouseInput at runtime. */
+export class KeyboardInput extends Input<KeyCode> {}
+
+/** Mouse-button input resource. Kept distinct from KeyboardInput at runtime. */
+export class MouseInput extends Input<MouseButton> {}
 
 // ─── MouseWheel ───
 
@@ -210,24 +216,33 @@ export class InputTarget {
  * ```
  */
 export class InputPlugin implements Plugin {
+  private teardown: (() => void) | undefined;
+
   build(app: App): void {
     // Register input resources
-    app.insertResource(new Input<KeyCode>());
-    app.insertResource(new Input<MouseButton>());
+    app.insertResource(new KeyboardInput());
+    app.insertResource(new MouseInput());
     app.insertResource(new MouseWheel());
     app.insertResource(new MousePosition());
 
     // Startup system — attaches event listeners once
-    app.addStartupSystem(initInputListeners());
+    app.addStartupSystem(initInputListeners((teardown) => {
+      this.teardown = teardown;
+    }));
 
     // Per-frame cleanup
     app.addSystem(Stages.Last, clearInputSystem());
+  }
+
+  destroy(): void {
+    this.teardown?.();
+    this.teardown = undefined;
   }
 }
 
 // ─── Internal: listener setup ───
 
-function initInputListeners(): SystemFn {
+function initInputListeners(onAttached: (teardown: () => void) => void): SystemFn {
   let attached = false;
 
   return (world) => {
@@ -238,15 +253,14 @@ function initInputListeners(): SystemFn {
     const target = targetResource?.target ?? document;
     const preventDefault = targetResource?.preventDefault ?? false;
 
-    const keys = world.getResource<Input<KeyCode>>(Input)!;
-    const mouseInput = world.getResource<Input<MouseButton>>(Input)!;
+    const keys = world.getRequiredResource(KeyboardInput);
+    const mouseInput = world.getRequiredResource(MouseInput);
     const wheel = world.getResource(MouseWheel)!;
     const cursor = world.getResource(MousePosition)!;
 
     const opts: AddEventListenerOptions = { passive: !preventDefault };
 
-    // Keyboard
-    target.addEventListener('keydown', (e) => {
+    const onKeyDown = (e: Event) => {
       if (preventDefault) e.preventDefault();
       keys.press((e as KeyboardEvent).code);
       // Update modifier keys that don't fire on their own
@@ -254,50 +268,68 @@ function initInputListeners(): SystemFn {
       if ((e as KeyboardEvent).ctrlKey) keys.press('ControlLeft');
       if ((e as KeyboardEvent).altKey) keys.press('AltLeft');
       if ((e as KeyboardEvent).metaKey) keys.press('MetaLeft');
-    }, opts);
-    target.addEventListener('keyup', (e) => {
+    };
+    const onKeyUp = (e: Event) => {
       if (preventDefault) e.preventDefault();
       keys.release((e as KeyboardEvent).code);
       if (!(e as KeyboardEvent).shiftKey) keys.release('ShiftLeft');
       if (!(e as KeyboardEvent).ctrlKey) keys.release('ControlLeft');
       if (!(e as KeyboardEvent).altKey) keys.release('AltLeft');
       if (!(e as KeyboardEvent).metaKey) keys.release('MetaLeft');
-    }, opts);
+    };
 
-    // Mouse buttons
-    target.addEventListener('mousedown', (e) => {
+    const onMouseDown = (e: Event) => {
       if (preventDefault) e.preventDefault();
       mouseInput.press(mapButton((e as MouseEvent).button));
-    }, opts);
-    target.addEventListener('mouseup', (e) => {
+    };
+    const onMouseUp = (e: Event) => {
       if (preventDefault) e.preventDefault();
       mouseInput.release(mapButton((e as MouseEvent).button));
-    }, opts);
+    };
 
-    // Mouse move
-    target.addEventListener('mousemove', (e) => {
+    const onMouseMove = (e: Event) => {
       if (preventDefault) e.preventDefault();
       cursor.feed((e as MouseEvent).clientX, (e as MouseEvent).clientY);
       cursor.inBounds = true;
-    }, opts);
-    target.addEventListener('mouseleave', () => {
+    };
+    const onMouseLeave = () => {
       cursor.inBounds = false;
-    }, opts);
-    target.addEventListener('mouseenter', (e) => {
+    };
+    const onMouseEnter = (e: Event) => {
       cursor.feed((e as MouseEvent).clientX, (e as MouseEvent).clientY);
       cursor.inBounds = true;
-    }, opts);
+    };
 
-    // Wheel
-    target.addEventListener('wheel', (e) => {
+    const onWheel = (e: Event) => {
       if (preventDefault) e.preventDefault();
       wheel.feed(e as WheelEvent);
-    }, opts);
+    };
+    const onContextMenu = (e: Event) => e.preventDefault();
 
-    // Prevent context menu when we're preventing default
+    target.addEventListener('keydown', onKeyDown, opts);
+    target.addEventListener('keyup', onKeyUp, opts);
+    target.addEventListener('mousedown', onMouseDown, opts);
+    target.addEventListener('mouseup', onMouseUp, opts);
+    target.addEventListener('mousemove', onMouseMove, opts);
+    target.addEventListener('mouseleave', onMouseLeave, opts);
+    target.addEventListener('mouseenter', onMouseEnter, opts);
+    target.addEventListener('wheel', onWheel, opts);
+
     if (preventDefault) {
-      target.addEventListener('contextmenu', (e) => e.preventDefault());
+      target.addEventListener('contextmenu', onContextMenu, opts);
     }
+
+    onAttached(() => {
+      target.removeEventListener('keydown', onKeyDown, opts);
+      target.removeEventListener('keyup', onKeyUp, opts);
+      target.removeEventListener('mousedown', onMouseDown, opts);
+      target.removeEventListener('mouseup', onMouseUp, opts);
+      target.removeEventListener('mousemove', onMouseMove, opts);
+      target.removeEventListener('mouseleave', onMouseLeave, opts);
+      target.removeEventListener('mouseenter', onMouseEnter, opts);
+      target.removeEventListener('wheel', onWheel, opts);
+      if (preventDefault) target.removeEventListener('contextmenu', onContextMenu, opts);
+    });
   };
 }
 
@@ -317,8 +349,8 @@ export function mapButton(button: number): MouseButton {
 
 function clearInputSystem(): SystemFn {
   return (world) => {
-    world.getResource<Input<KeyCode>>(Input)?.clear();
-    world.getResource<Input<MouseButton>>(Input)?.clear();
+    world.getResource(KeyboardInput)?.clear();
+    world.getResource(MouseInput)?.clear();
     world.getResource(MouseWheel)?.clear();
   };
 }

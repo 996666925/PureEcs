@@ -31,11 +31,37 @@ export class Mut<T> {
   }
 }
 
+/** Wrapper that marks a resource as changed when accessed mutably. */
+export class ResourceMut<T> {
+  private _value: T;
+  private resourceId: number;
+  private trackers: ChangeTrackers;
+
+  constructor(value: T, resourceId: number, trackers: ChangeTrackers) {
+    this._value = value;
+    this.resourceId = resourceId;
+    this.trackers = trackers;
+  }
+
+  /** Access the inner resource and mark it as changed. */
+  get(): T {
+    this.trackers.markResourceChanged(this.resourceId);
+    return this._value;
+  }
+
+  /** Access the inner resource without marking it as changed. */
+  peek(): T {
+    return this._value;
+  }
+}
+
 export class ChangeTrackers {
   /** Entities that had a component added this tick: componentId -> Set<entityId> */
   private added: Map<number, Set<number>> = new Map();
   /** Entities that had a component changed this tick: componentId -> Set<entityId> */
   private changed: Map<number, Set<number>> = new Map();
+  /** Resources changed during the current tick. */
+  private changedResources: Set<number> = new Set();
 
   /**
    * Mark a component as added for an entity.
@@ -75,11 +101,20 @@ export class ChangeTrackers {
     return this.changed.get(componentId)?.has(entityId) ?? false;
   }
 
+  markResourceChanged(resourceId: number): void {
+    this.changedResources.add(resourceId);
+  }
+
+  isResourceChanged(resourceId: number): boolean {
+    return this.changedResources.has(resourceId);
+  }
+
   /**
    * Clear all tracking data. Called at the end of each tick.
    */
   clear(): void {
     this.added.clear();
     this.changed.clear();
+    this.changedResources.clear();
   }
 }

@@ -38,14 +38,20 @@ export class Timer {
   private _paused: boolean = false;
 
   constructor(duration: number, mode: TimerMode = TimerMode.Once) {
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new RangeError('Timer duration must be a finite number greater than 0');
+    }
     this.duration = duration;
     this.mode = mode;
   }
 
   /** Advance the timer by `delta` seconds. Call once per tick in a system. */
   tick(delta: number): this {
-    if (this._paused || this.elapsed >= this.duration) return this;
+    if (!Number.isFinite(delta) || delta < 0) {
+      throw new RangeError('Timer delta must be a finite number greater than or equal to 0');
+    }
     this._justFinished = false;
+    if (this._paused || (this.mode === TimerMode.Once && this.elapsed >= this.duration)) return this;
     this.elapsed += delta;
     if (this.elapsed >= this.duration) {
       this._justFinished = true;

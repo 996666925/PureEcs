@@ -24,7 +24,9 @@ export class ResourceStore {
 
   remove<T>(type: ComponentClass<T>): T | undefined {
     const id = getComponentId(type);
-    return this.resources.delete(id) ? undefined : undefined;
+    const resource = this.resources.get(id) as T | undefined;
+    this.resources.delete(id);
+    return resource;
   }
 
   clear(): void {

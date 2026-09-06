@@ -8,10 +8,10 @@ export { App, system, Stages, Stage, type SystemConfig } from './app';
 export { type Plugin, PluginGroup, DefaultPlugin, createTimeSystem } from './plugin';
 
 // System builder
-export { params, Query, Single, QueryDescriptor, SingleDescriptor, ParamsBuilder, Res, ResourceDescriptor, Cmd, CommandsDescriptor, Local, LocalDescriptor } from './system';
+export { params, Query, Single, QueryDescriptor, SingleDescriptor, ParamsBuilder, Res, ResMut, ResourceDescriptor, ResourceMutDescriptor, Cmd, CommandsDescriptor, Local, LocalDescriptor } from './system';
 
 // Scheduler
-export { Scheduler, SystemBuilder, CircularDependencyError } from './scheduler';
+export { Scheduler, SystemBuilder, SystemSet, CircularDependencyError, type SystemCondition } from './scheduler';
 
 // Entity
 export { Entity } from './entity';
@@ -32,7 +32,10 @@ export { ResourceStore } from './resource';
 export { Commands } from './commands';
 
 // Change tracking
-export { Mut, ChangeTrackers } from './change-tracking';
+export { Mut, ResourceMut, ChangeTrackers } from './change-tracking';
+
+// Events
+export { Events, EventWriter, EventReader, EventWriterDescriptor, EventReaderDescriptor, type EventWriter as EventWriterHandle, type EventReader as EventReaderHandle } from './event';
 
 // Storage
 export { SparseSet } from './storage';
@@ -41,5 +44,5 @@ export { SparseSet } from './storage';
 export { Timer, TimerMode, Time } from './timer';
 
 // Input
-export { Input, InputPlugin, InputTarget, MouseWheel, MousePosition, mapButton } from './input';
+export { Input, KeyboardInput, MouseInput, InputPlugin, InputTarget, MouseWheel, MousePosition, mapButton } from './input';
 export type { KeyCode, MouseButton } from './input';

@@ -5,7 +5,7 @@
 ## 快速开始
 
 ```ts
-import { App, World, params, Query, Single, With, Without, Res, Cmd } from 'pureecs';
+import { App, World, params, Query } from 'pureecs';
 
 // 1. 定义组件（普通 class）
 class Position {
@@ -92,7 +92,8 @@ const system = params(Position, Velocity).system((positions, velocities) => {
 });
 ```
 
-`params()` 还支持注入资源和命令，以单值（非数组）传入回调：
+`params()` 还支持注入必需资源和命令，以单值（非数组）传入回调。缺少 `Res()`
+声明的资源时，系统会抛出包含资源类型的错误：
 
 ```ts
 const system = params(Position, Velocity, Res(DeltaTime), Cmd())
@@ -202,6 +203,21 @@ if (scoreMut) {
 }
 ```
 
+### ResMut<T> —— 可变资源
+
+`ResMut()` 注入一个资源的可变包装器。调用 `get()` 会标记资源在当前 tick
+发生变化，`peek()` 只读且不会标记。它与 `world.getResourceMut()` 返回相同的
+`ResourceMut<T>` 包装器：
+
+```ts
+params(ResMut(GameState)).system((stateMut) => {
+  const state = stateMut.get();
+  state.score += 1;
+});
+```
+
+可通过 `world.isResourceChanged(GameState)` 在当前 tick 内检查变更。
+
 ## 系统变体
 
 | 方法 | 额外参数 | 适用场景 |
@@ -258,12 +274,33 @@ app.addSystem(Stages.PostUpdate, audio, { after: [render] });
 // audio 在 render 之后、同一阶段内其他系统之前执行
 ```
 
+### 条件系统与系统集
+
+系统可按条件执行，也可以加入 `SystemSet` 共享条件、启停状态和排序约束：
+
+```ts
+import { SystemSet, system } from 'pureecs';
+
+const gameplay = new SystemSet('gameplay')
+  .runIf((world) => !world.getResource(GamePaused)?.value);
+
+app.addSystemConfig(
+  system(move).inSet(gameplay).runIf(() => playerReady)
+);
+
+gameplay.enabled(false); // 暂停整个系统集
+```
+
+`system(fn).enabled(false)` 可单独禁用系统；`beforeSet()` / `afterSet()`
+可声明同一阶段内相对于系统集的顺序。系统和目标系统集必须在同一阶段，
+跨阶段顺序由阶段本身决定。
+
 ## Plugin 机制
 
 Plugin 将系统、资源、阶段等封装为可复用模块：
 
 ```ts
-import { App, Plugin, PluginGroup, params, Res } from 'pureecs';
+import { App, Plugin, PluginGroup, InputPlugin, Stages } from 'pureecs';
 
 class PhysicsPlugin implements Plugin {
   build(app: App): void {
@@ -300,7 +337,7 @@ new App().addPlugin(plugins).update();
 - **justReleased** — 当前帧刚松开
 
 ```ts
-import { App, InputPlugin, params, Res, Input, MousePosition, MouseWheel, InputTarget } from 'pureecs';
+import { App, InputPlugin, params, Res, KeyboardInput, MouseInput, MousePosition, MouseWheel, InputTarget } from 'pureecs';
 
 // 默认监听 document
 const app = new App()
@@ -312,12 +349,14 @@ app.insertResource(new InputTarget(canvas));
 app.insertResource(new InputTarget(canvas, /* preventDefault */ true));
 
 // 在系统中通过 Res() 读取输入
-params(Res(Input), Res(MousePosition), Res(MouseWheel))
-  .system((keys, cursor, wheel) => {
-    // keys: Input<KeyCode> — 拥有完整的 KeyCode 自动完成
+params(Res(KeyboardInput), Res(MouseInput), Res(MousePosition), Res(MouseWheel))
+  .system((keys, mouseButtons, cursor, wheel) => {
+    // keys: KeyboardInput — 拥有完整的 KeyCode 自动完成
     if (keys.justPressed('Space'))        jump();
     if (keys.pressed('KeyW'))             moveForward();
     if (keys.anyPressed(['KeyA', 'KeyD'])) strafe();
+
+    if (mouseButtons.justPressed('Left'))  fire();
 
     // 鼠标
     lookAt(cursor.x, cursor.y);
@@ -329,16 +368,19 @@ params(Res(Input), Res(MousePosition), Res(MouseWheel))
 
 | 类 | 类型 | 描述 |
 |---|---|---|
-| `Input<KeyCode>` | resource | 键盘输入状态，`KeyCode` 为 `'KeyW'`、`'Space'`、`'ArrowUp'` 等 ~80 个标准键的联合类型 |
-| `Input<MouseButton>` | resource | 鼠标按钮状态，`MouseButton` = `'Left' \| 'Right' \| 'Middle' \| 'Back' \| 'Forward'` |
+| `KeyboardInput` | resource | 键盘输入状态，继承 `Input<KeyCode>`；`KeyCode` 为 `'KeyW'`、`'Space'`、`'ArrowUp'` 等 ~80 个标准键的联合类型 |
+| `MouseInput` | resource | 鼠标按钮状态，继承 `Input<MouseButton>`；`MouseButton` = `'Left' \| 'Right' \| 'Middle' \| 'Back' \| 'Forward'` |
 | `MousePosition` | resource | 当前光标坐标 + `inBounds` |
 | `MouseWheel` | resource | 帧内累积滚轮增量 |
 | `InputTarget` | resource（可选） | 指定事件监听目标元素，不设置则默认 `document` |
 | `InputPlugin` | plugin | 注册所有 input 资源 + 自动监听 + 清理 |
 
+当应用不再使用时调用 `app.destroy()`。它会按插件注册的反向顺序清理插件持有的外部资源，
+`InputPlugin` 会移除已注册的 DOM 事件监听器；销毁后的 App 不能再次运行或配置。
+
 ## 资源（Resource）
 
-资源是全局单例数据，以 class 作为标识。通过 `Res()` 注入到系统中：
+资源是全局单例数据，以 class 作为标识。通过 `Res()` 注入到系统中；缺失的必需资源会在系统执行时抛出明确错误。
 
 ```ts
 class GameConfig {
@@ -380,8 +422,9 @@ app.insertResource(new Timer(2, TimerMode.Repeating));
 
 // 在系统中使用
 params(ResMut(Timer)).system((timer) => {
-  timer.tick(0.016); // 每帧推进 16ms
-  if (timer.justFinished()) {
+  const value = timer.get();
+  value.tick(0.016); // 每帧推进 16ms
+  if (value.justFinished()) {
     console.log('每 2 秒触发一次！');
   }
 });
@@ -389,7 +432,7 @@ params(ResMut(Timer)).system((timer) => {
 
 | 方法 | 描述 |
 |------|------|
-| `tick(delta)` | 推进计时器 |
+| `tick(delta)` | 推进计时器（`delta` 必须是非负有限数） |
 | `finished()` | 是否已结束 |
 | `justFinished()` | 是否刚结束（本 tick 内） |
 | `reset()` | 重置为 0 |
@@ -467,6 +510,33 @@ function killEntity(world: World, entity: Entity): void {
 }
 ```
 
+## 事件
+
+事件按类型注册，写入后可在同一 tick 的后续系统中读取，并在 tick 结束时自动清空：
+
+```ts
+import { App, EventReader, EventWriter, params } from 'pureecs';
+
+class Damage {
+  constructor(public amount: number) {}
+}
+
+const app = new App()
+  .addEvent(Damage)
+  .addSystem(params(EventWriter(Damage)).system((writer) => {
+    writer.send(new Damage(10));
+  }))
+  .addSystem(params(EventReader(Damage)).system((reader) => {
+    for (const event of reader.read()) {
+      console.log(event.amount);
+    }
+  }));
+```
+
+`EventWriter(Type)` 只负责发送，`EventReader(Type)` 为每个系统维护独立读取游标。
+读取器只能看到其执行前已发送的事件，因此发送系统应排在读取系统之前；所有
+事件都会在 tick 结束时清空。
+
 ## 实体生成索引
 
 实体 ID 使用代际索引。反序列化（despawn）后，之前的 Entity 引用会"失效"——即使索引被新实体复用，旧引用也不会再匹配：
@@ -490,17 +560,21 @@ world.isAlive(e2);              // true
 | `params()` | 系统构建器函数 |
 | `Query()` | 多实体查询描述符，返回数组 |
 | `Single()` | 单实体查询描述符，返回单值 (或 `undefined`) |
-| `Res()` | 资源参数描述符 |
+| `Res()` / `ResMut()` | 资源读 / 可变资源参数描述符 |
 | `Cmd()` | 命令参数描述符 |
 | `Local()` | 系统本地状态描述符，惰性初始化 |
 | `With()` / `Without()` | 组件存在过滤器 |
 | `Added()` / `Changed()` | 变更跟踪过滤器 |
-| `Mut<T>` | 可变组件引用，标记变更 |
+| `Mut<T>` / `ResourceMut<T>` | 可变组件 / 资源引用，调用 `get()` 标记变更 |
 | `Stages` | 内置阶段：Startup / First / PreUpdate / Update / PostUpdate / Last |
 | `Stage` | 自定义阶段 |
 | `Commands` / `SpawnBuilder` | 延迟世界变更 |
-| `Plugin` / `PluginGroup` / `DefaultPlugin` | 插件机制，`DefaultPlugin` 内置 Time |
-| `Input` | 泛型输入追踪器，记录 pressed/justPressed/justReleased |
+| `Events` / `EventWriter` / `EventReader` | 按类型发送和读取帧内事件 |
+| `SystemSet` | 共享系统条件、启停和排序约束 |
+| `App.destroy()` | 清理插件资源（包括输入事件监听） |
+| `Plugin` / `PluginGroup` / `DefaultPlugin` | 插件机制，`DefaultPlugin` 内置 Time（输入请显式添加 `InputPlugin`） |
+| `Input` | 泛型输入追踪器基类，记录 pressed/justPressed/justReleased |
+| `KeyboardInput` / `MouseInput` | 可通过 `Res()` 注入的键盘 / 鼠标按钮资源 |
 | `InputPlugin` | 输入插件，默认监听 document 上的键鼠事件 |
 | `InputTarget` | 可选资源，指定事件监听目标元素 |
 | `MousePosition` / `MouseWheel` | 鼠标位置 / 滚轮增量资源 |
@@ -508,7 +582,7 @@ world.isAlive(e2);              // true
 | `createTimeSystem()` | 返回一个用 wall-clock 更新 Time 的系统 |
 | `Timer` / `TimerMode` | 内置定时器资源，单次/重复模式 |
 | `Time` | 全局时间资源，帧 delta + 总时长 + 变速 |
-| `system()` | SystemBuilder 工厂函数 |
+| `system()` / `SystemBuilder` | 系统配置与条件、系统集、排序构建器 |
 
 ## License
 

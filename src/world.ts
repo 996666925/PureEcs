@@ -5,7 +5,8 @@ import { SparseSet } from './storage';
 import { QueryEngine, type QueryFilter } from './query';
 import { ResourceStore } from './resource';
 import { Commands } from './commands';
-import { ChangeTrackers, Mut } from './change-tracking';
+import { ChangeTrackers, Mut, ResourceMut } from './change-tracking';
+import { Events } from './event';
 import { Scheduler, Stages, type Stage, type SystemConfig, type SystemFn, SystemBuilder } from './scheduler';
 
 export type { SystemFn };
@@ -21,6 +22,7 @@ export class World {
   private changeTrackers = new ChangeTrackers();
   private scheduler = new Scheduler();
   private _commands: Commands = new Commands();
+  private events: Map<number, Events<unknown>> = new Map();
 
   // ─── Entity operations ───
 
@@ -47,7 +49,8 @@ export class World {
 
   // ─── Component operations ───
 
-  insertComponent<T>(entity: Entity, component: T): void {
+  insertComponent<T>(entity: Entity, component: T): boolean {
+    if (!this.isAlive(entity)) return false;
     const componentId = getComponentId(component!.constructor as ComponentClass);
     let storage = this.storages.get(componentId);
     if (!storage) {
@@ -59,9 +62,11 @@ export class World {
     if (isNew) {
       this.changeTrackers.markAdded(componentId, entity.id);
     }
+    return true;
   }
 
   removeComponent<T>(entity: Entity, type: ComponentClass<T>): T | undefined {
+    if (!this.isAlive(entity)) return undefined;
     const componentId = getComponentId(type);
     const storage = this.storages.get(componentId);
     if (!storage) return undefined;
@@ -69,6 +74,7 @@ export class World {
   }
 
   getComponent<T>(entity: Entity, type: ComponentClass<T>): T | undefined {
+    if (!this.isAlive(entity)) return undefined;
     const componentId = getComponentId(type);
     const storage = this.storages.get(componentId);
     if (!storage) return undefined;
@@ -76,6 +82,7 @@ export class World {
   }
 
   getComponentMut<T>(entity: Entity, type: ComponentClass<T>): Mut<T> | undefined {
+    if (!this.isAlive(entity)) return undefined;
     const componentId = getComponentId(type);
     const storage = this.storages.get(componentId);
     if (!storage) return undefined;
@@ -85,6 +92,7 @@ export class World {
   }
 
   hasComponent(entity: Entity, type: ComponentClass): boolean {
+    if (!this.isAlive(entity)) return false;
     const componentId = getComponentId(type);
     return this.storages.get(componentId)?.has(entity.id) ?? false;
   }
@@ -120,8 +128,59 @@ export class World {
     return this.resources.get(type);
   }
 
-  removeResource<T>(type: ComponentClass<T>): void {
-    this.resources.remove(type);
+  removeResource<T>(type: ComponentClass<T>): T | undefined {
+    return this.resources.remove(type);
+  }
+
+  /** Get a resource or throw when the system's required dependency is absent. */
+  getRequiredResource<T>(type: ComponentClass<T>): T {
+    const resource = this.getResource(type);
+    if (resource === undefined) {
+      throw new Error(`Required resource is missing: ${type.name || '<anonymous>'}`);
+    }
+    return resource;
+  }
+
+  getResourceMut<T>(type: ComponentClass<T>): ResourceMut<T> | undefined {
+    const resource = this.getResource(type);
+    if (resource === undefined) return undefined;
+    return new ResourceMut(resource, getComponentId(type), this.changeTrackers);
+  }
+
+  getRequiredResourceMut<T>(type: ComponentClass<T>): ResourceMut<T> {
+    const resource = this.getResourceMut(type);
+    if (resource === undefined) {
+      throw new Error(`Required resource is missing: ${type.name || '<anonymous>'}`);
+    }
+    return resource;
+  }
+
+  isResourceChanged(type: ComponentClass): boolean {
+    return this.changeTrackers.isResourceChanged(getComponentId(type));
+  }
+
+  // ─── Events ───
+
+  initEvent<T>(type: ComponentClass<T>): Events<T> {
+    const id = getComponentId(type);
+    let events = this.events.get(id);
+    if (!events) {
+      events = new Events<T>();
+      this.events.set(id, events);
+    }
+    return events as Events<T>;
+  }
+
+  getEvents<T>(type: ComponentClass<T>): Events<T> | undefined {
+    return this.events.get(getComponentId(type)) as Events<T> | undefined;
+  }
+
+  getRequiredEvents<T>(type: ComponentClass<T>): Events<T> {
+    const events = this.getEvents(type);
+    if (!events) {
+      throw new Error(`Event type is not registered: ${type.name || '<anonymous>'}`);
+    }
+    return events;
   }
 
   hasResource(type: ComponentClass): boolean {
@@ -172,6 +231,11 @@ export class World {
       stage,
       before: ordering?.before ?? [],
       after: ordering?.after ?? [],
+      runIf: [],
+      enabled: true,
+      sets: [],
+      beforeSets: [],
+      afterSets: [],
     };
     this.scheduler.addSystem(config);
     return this;
@@ -190,7 +254,17 @@ export class World {
    * Add a startup system (runs once before the first update).
    */
   addStartupSystem(fn: SystemFn): this {
-    this.scheduler.addSystem({ fn, stage: Stages.Startup, before: [], after: [] });
+    this.scheduler.addSystem({
+      fn,
+      stage: Stages.Startup,
+      before: [],
+      after: [],
+      runIf: [],
+      enabled: true,
+      sets: [],
+      beforeSets: [],
+      afterSets: [],
+    });
     return this;
   }
 
@@ -226,7 +300,7 @@ export class World {
       const startupByStage = this.scheduler.getStartupSystemsByStage();
       for (const [, systems] of startupByStage) {
         for (const sys of systems) {
-          sys.fn(this);
+          if (this.scheduler.shouldRun(sys, this)) sys.fn(this);
         }
       }
       this.startupRun = true;
@@ -237,13 +311,16 @@ export class World {
     const updateByStage = this.scheduler.getUpdateSystemsByStage();
     for (const [, systems] of updateByStage) {
       for (const sys of systems) {
-        sys.fn(this);
+        if (this.scheduler.shouldRun(sys, this)) sys.fn(this);
       }
       // Apply commands after each stage
       this._commands.apply(this);
     }
 
     this.changeTrackers.clear();
+    for (const events of this.events.values()) {
+      events.clear();
+    }
   }
 
   run(ticks: number = 1): void {
