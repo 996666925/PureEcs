@@ -597,9 +597,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         const items: unknown[] = [];
         const storage = world.getComponentStorage(type);
         if (storage) {
-          for (const val of storage.values()) {
-            items.push(val);
-          }
+          storage.forEachValue((val) => items.push(val));
         }
         args[idx] = items;
       }
@@ -690,10 +688,10 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         const items: unknown[] = [];
         const storage = world.getComponentStorage(type);
         if (storage) {
-          for (const entityId of storage.entityIds()) {
+          storage.forEach((entityId, value) => {
             if (plainGroup[0].idx === idx) ids.push(entityId);
-            items.push(storage.get(entityId));
-          }
+            items.push(value);
+          });
         }
         args[idx] = items;
       }

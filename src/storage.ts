@@ -14,6 +14,11 @@ export class SparseSet<T = unknown> {
     return this.dense.length;
   }
 
+  /** @internal Get a dense entity ID by index. */
+  entityAt(index: number): number {
+    return this.entities[index];
+  }
+
   insert(entityId: number, component: T): void {
     const denseIndex = this.sparse.get(entityId);
     if (denseIndex !== undefined) {
@@ -59,6 +64,29 @@ export class SparseSet<T = unknown> {
 
   has(entityId: number): boolean {
     return this.sparse.has(entityId);
+  }
+
+  /**
+   * Iterate over all (entityId, component) pairs.
+   */
+  forEach(callback: (entityId: number, component: T) => void): void {
+    for (let i = 0; i < this.dense.length; i++) {
+      callback(this.entities[i], this.dense[i]);
+    }
+  }
+
+  /** @internal Iterate entity IDs without allocating a generator. */
+  forEachEntity(callback: (entityId: number) => void): void {
+    for (let i = 0; i < this.entities.length; i++) {
+      callback(this.entities[i]);
+    }
+  }
+
+  /** @internal Iterate component values without allocating a generator. */
+  forEachValue(callback: (component: T) => void): void {
+    for (let i = 0; i < this.dense.length; i++) {
+      callback(this.dense[i]);
+    }
   }
 
   /**

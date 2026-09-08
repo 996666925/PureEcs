@@ -118,7 +118,7 @@ export class QueryEngine {
     if (!smallestStorage) return;
 
     const components: unknown[] = new Array(this.fetches.length);
-    for (const entityId of smallestStorage.entityIds()) {
+    smallestStorage.forEachEntity((entityId) => {
       let allPresent = true;
       for (let i = 0; i < this.fetches.length; i++) {
         if (this.entityPositionFlags[i]) {
@@ -132,7 +132,7 @@ export class QueryEngine {
         }
         components[i] = storage.get(entityId);
       }
-      if (!allPresent) continue;
+      if (!allPresent) return;
 
       let passesFilters = true;
       for (let i = 0; i < this.filters.length; i++) {
@@ -155,7 +155,7 @@ export class QueryEngine {
         if (!passesFilters) break;
       }
       if (passesFilters) callback(entityId, components);
-    }
+    });
   }
 
   /**
@@ -173,7 +173,8 @@ export class QueryEngine {
     }
     const smallestStorage = smallestIdx < 0 ? undefined : storages[smallestIdx];
     if (!smallestStorage) return;
-    for (const entityId of smallestStorage.entityIds()) {
+    for (let denseIndex = 0; denseIndex < smallestStorage.length; denseIndex++) {
+      const entityId = smallestStorage.entityAt(denseIndex);
       const components: unknown[] = new Array(this.fetches.length);
       let allPresent = true;
       for (let i = 0; i < this.fetches.length; i++) {
