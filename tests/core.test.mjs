@@ -16,6 +16,7 @@ import {
   SystemSet,
   Timer,
   World,
+  Entity,
   Query,
   With,
   params,
@@ -145,6 +146,43 @@ test('With filters select only entities carrying the filtered component', () => 
 
   assert.equal(values.length, 1);
   assert.ok(values[0] instanceof Position);
+});
+
+test('systemForEach supports three-fetch queries and Entity handles', () => {
+  class Position {
+    constructor(value) {
+      this.value = value;
+    }
+  }
+  class Velocity {
+    constructor(value) {
+      this.value = value;
+    }
+  }
+  class Active {}
+
+  const world = new World();
+  const first = world.spawn();
+  world.insertComponent(first, new Position(1));
+  world.insertComponent(first, new Velocity(2));
+  world.insertComponent(first, new Active());
+  const second = world.spawn();
+  world.insertComponent(second, new Position(10));
+  world.insertComponent(second, new Velocity(20));
+
+  const sums = [];
+  params(Query(Position, Velocity, Active))
+    .systemForEach((position, velocity, active) => {
+      sums.push(position.value + velocity.value + (active ? 1 : 0));
+    })(world);
+  assert.deepEqual(sums, [4]);
+
+  const entities = [];
+  params(Query(Entity, With(Position)))
+    .systemForEach((entity) => entities.push(entity))(world);
+  assert.equal(entities.length, 2);
+  assert.ok(entities.some((entity) => entity.equals(first)));
+  assert.ok(entities.some((entity) => entity.equals(second)));
 });
 
 test('DefaultPlugin works without a DOM input target', () => {

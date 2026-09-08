@@ -173,6 +173,90 @@ export class QueryEngine {
     });
   }
 
+  /** @internal Allocation-free fast path for a one-fetch query. */
+  forEach1(world: World, callback: (component: unknown) => void): void {
+    this.forEachMatchedEntity(world, (entityId, storages) => {
+      const component = this.resolveFetch(world, entityId, storages, 0);
+      if (component !== undefined) callback(component);
+    });
+  }
+
+  /** @internal Allocation-free fast path for a two-fetch query. */
+  forEach2(world: World, callback: (first: unknown, second: unknown) => void): void {
+    this.forEachMatchedEntity(world, (entityId, storages) => {
+      const first = this.resolveFetch(world, entityId, storages, 0);
+      const second = this.resolveFetch(world, entityId, storages, 1);
+      if (first !== undefined && second !== undefined) callback(first, second);
+    });
+  }
+
+  /** @internal Allocation-free fast path for a three-fetch query. */
+  forEach3(world: World, callback: (first: unknown, second: unknown, third: unknown) => void): void {
+    this.forEachMatchedEntity(world, (entityId, storages) => {
+      const first = this.resolveFetch(world, entityId, storages, 0);
+      const second = this.resolveFetch(world, entityId, storages, 1);
+      const third = this.resolveFetch(world, entityId, storages, 2);
+      if (first !== undefined && second !== undefined && third !== undefined) {
+        callback(first, second, third);
+      }
+    });
+  }
+
+  private resolveFetch(
+    world: World,
+    entityId: number,
+    storages: (SparseSet | undefined)[],
+    index: number,
+  ): unknown {
+    if (this.entityPositionFlags[index]) return world.getEntityById(entityId);
+    return storages[index]?.get(entityId);
+  }
+
+  /** Iterate matching IDs for the specialized allocation-free query paths. */
+  private forEachMatchedEntity(
+    world: World,
+    callback: (entityId: number, storages: (SparseSet | undefined)[]) => void,
+  ): void {
+    if (this.fetches.length === 0) return;
+    const { storages, filterStorages } = this.resolveStorages(world);
+
+    let candidate: SparseSet | undefined;
+    let candidateLength = Infinity;
+    for (let i = 0; i < storages.length; i++) {
+      if (this.entityPositionFlags[i]) continue;
+      const storage = storages[i];
+      const length = storage?.length ?? Infinity;
+      if (length < candidateLength) {
+        candidateLength = length;
+        candidate = storage;
+      }
+    }
+    for (let i = 0; i < this.filters.length; i++) {
+      if (this.filters[i].type !== 'with') continue;
+      const storage = filterStorages[i];
+      const length = storage?.length ?? Infinity;
+      if (length < candidateLength) {
+        candidateLength = length;
+        candidate = storage;
+      }
+    }
+    if (!candidate) return;
+
+    candidate.forEachEntity((entityId) => {
+      for (let i = 0; i < this.filters.length; i++) {
+        const filter = this.filters[i];
+        const storage = filterStorages[i];
+        switch (filter.type) {
+          case 'with': if (!storage?.has(entityId)) return; break;
+          case 'without': if (storage?.has(entityId)) return; break;
+          case 'added': if (!world.isComponentAddedById(entityId, this.filterIds[i])) return; break;
+          case 'changed': if (!world.isComponentChangedById(entityId, this.filterIds[i])) return; break;
+        }
+      }
+      callback(entityId, storages);
+    });
+  }
+
   /**
    * Execute the query against a world, returning matching (entityId, components[]) tuples.
    */

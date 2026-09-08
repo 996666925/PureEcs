@@ -650,13 +650,35 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
       descriptor.filters,
       descriptor.entityPositions,
     );
+    // The runtime dispatches a variable number of positional components
+    // based on the descriptor. Keep the public callback strongly typed while
+    // avoiding repeated generic tuple casts in each specialized branch.
+    const invoke = fn as unknown as (...components: unknown[]) => void;
 
     return (world: World) => {
-      queryEngine.forEach(world, (_entityId, components) => {
-        // QueryEngine reuses this array; spreading only passes its values and
-        // does not allocate result tuples or retain the reusable buffer.
-        fn(...(components as QueryForEachArgs<FirstDescriptor<D>>));
-      });
+      // Use specialized paths for the common 1–3 component queries. These
+      // avoid the reusable components array and argument spread entirely.
+      switch (descriptor.fetches.length) {
+        case 1:
+          queryEngine.forEach1(world, (first) => {
+            invoke(first);
+          });
+          break;
+        case 2:
+          queryEngine.forEach2(world, (first, second) => {
+            invoke(first, second);
+          });
+          break;
+        case 3:
+          queryEngine.forEach3(world, (first, second, third) => {
+            invoke(first, second, third);
+          });
+          break;
+        default:
+          queryEngine.forEach(world, (_entityId, components) => {
+            invoke(...components);
+          });
+      }
     };
   }
 
