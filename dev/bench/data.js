@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788876107473,
+  "lastUpdate": 1788878265843,
   "repoUrl": "https://github.com/996666925/PureEcs",
   "entries": {
     "Benchmark": [
@@ -824,6 +824,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "despawn entities",
             "value": 14.555520000000001,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "996666925@qq.com",
+            "name": "996666925",
+            "username": "996666925"
+          },
+          "committer": {
+            "email": "996666925@qq.com",
+            "name": "996666925",
+            "username": "996666925"
+          },
+          "distinct": true,
+          "id": "8ecd85e00e6b022aba12c7501efa2735b33842b4",
+          "message": "fix(query): 修复 Entity-only 查询无法返回实体",
+          "timestamp": "2026-09-08T22:37:13+08:00",
+          "tree_id": "064e4bd2af4a9c0d56be8bddc1827d6e56cd3c12",
+          "url": "https://github.com/996666925/PureEcs/commit/8ecd85e00e6b022aba12c7501efa2735b33842b4"
+        },
+        "date": 1788878265249,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "spawn + insert Position/Velocity",
+            "value": 52.20935700000007,
+            "unit": "ms"
+          },
+          {
+            "name": "spawnWith initial components",
+            "value": 33.2826,
+            "unit": "ms"
+          },
+          {
+            "name": "getComponent lookup",
+            "value": 36.93192699999997,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position",
+            "value": 17.776567,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position + Velocity",
+            "value": 14.784358999999995,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach with With(Active)",
+            "value": 11.795357999999965,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.iter Position + Velocity",
+            "value": 28.394013000000086,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query system (materialized)",
+            "value": 30.654048000000103,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query systemForEach",
+            "value": 13.40028499999994,
+            "unit": "ms"
+          },
+          {
+            "name": "despawn entities",
+            "value": 16.56004299999995,
             "unit": "ms"
           }
         ]
