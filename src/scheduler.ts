@@ -238,36 +238,54 @@ export class Scheduler {
 function topologicalSort(systems: SystemConfig[]): SystemConfig[] {
   if (systems.length === 0) return [];
 
-  const fnToIndex = new Map<SystemFn, number>();
-  systems.forEach((s, i) => fnToIndex.set(s.fn, i));
+  // A function can be registered more than once (for example with different
+  // configurations). Keep every registration so ordering constraints do not
+  // silently target only the last one.
+  const fnToIndices = new Map<SystemFn, number[]>();
+  systems.forEach((s, i) => {
+    const indices = fnToIndices.get(s.fn);
+    if (indices) indices.push(i);
+    else fnToIndices.set(s.fn, [i]);
+  });
 
   const adj: number[][] = Array.from({ length: systems.length }, () => []);
   const inDegree = new Array<number>(systems.length).fill(0);
+  const edgeSets = adj.map(() => new Set<number>());
+
+  const addEdge = (from: number, to: number): void => {
+    // A function reference identifies the other registrations of that
+    // function. A system must never depend on itself.
+    if (from === to || edgeSets[from].has(to)) return;
+    edgeSets[from].add(to);
+    adj[from].push(to);
+    inDegree[to]++;
+  };
 
   for (let i = 0; i < systems.length; i++) {
     const sys = systems[i];
 
     for (const afterFn of sys.after) {
-      const j = fnToIndex.get(afterFn);
-      if (j !== undefined) {
-        adj[j].push(i);
-        inDegree[i]++;
+      const indices = fnToIndices.get(afterFn);
+      if (indices) {
+        for (const j of indices) {
+          addEdge(j, i);
+        }
       }
     }
 
     for (const beforeFn of sys.before) {
-      const j = fnToIndex.get(beforeFn);
-      if (j !== undefined) {
-        adj[i].push(j);
-        inDegree[j]++;
+      const indices = fnToIndices.get(beforeFn);
+      if (indices) {
+        for (const j of indices) {
+          addEdge(i, j);
+        }
       }
     }
 
     for (const afterSet of sys.afterSets ?? []) {
       for (let j = 0; j < systems.length; j++) {
         if (systems[j].sets?.includes(afterSet)) {
-          adj[j].push(i);
-          inDegree[i]++;
+          addEdge(j, i);
         }
       }
     }
@@ -275,8 +293,7 @@ function topologicalSort(systems: SystemConfig[]): SystemConfig[] {
     for (const beforeSet of sys.beforeSets ?? []) {
       for (let j = 0; j < systems.length; j++) {
         if (systems[j].sets?.includes(beforeSet)) {
-          adj[i].push(j);
-          inDegree[j]++;
+          addEdge(i, j);
         }
       }
     }

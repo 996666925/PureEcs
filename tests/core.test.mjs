@@ -317,6 +317,20 @@ test('system conditions, enabled state, and system sets control execution order'
   assert.deepEqual(order, ['simulate', 'render', 'render']);
 });
 
+test('ordering constraints handle duplicate registrations of the same function', () => {
+  const order = [];
+  const repeated = () => order.push('repeated');
+  const afterRepeated = () => order.push('after');
+
+  const app = new App()
+    .addSystem(repeated)
+    .addSystem(repeated)
+    .addSystemConfig(system(afterRepeated).after(repeated));
+
+  app.update();
+  assert.deepEqual(order, ['repeated', 'repeated', 'after']);
+});
+
 test('App.destroy removes InputPlugin event listeners', () => {
   class CountingTarget extends EventTarget {
     added = 0;
