@@ -34,6 +34,18 @@ export class World {
     return this.entityAlloc.alloc();
   }
 
+  /**
+   * Spawn an entity and attach its initial components in one operation.
+   * This avoids repeating the entity liveness check for every component.
+   */
+  spawnWith(...components: unknown[]): Entity {
+    const entity = this.entityAlloc.alloc();
+    for (const component of components) {
+      this.insertComponentUnchecked(entity.id, component);
+    }
+    return entity;
+  }
+
   despawn(entity: Entity): boolean {
     if (!this.entityAlloc.dealloc(entity)) return false;
     const componentIds = this.entityComponentIds[entity.id];
@@ -59,6 +71,12 @@ export class World {
 
   insertComponent<T>(entity: Entity, component: T): boolean {
     if (!this.isAlive(entity)) return false;
+    this.insertComponentUnchecked(entity.id, component);
+    return true;
+  }
+
+  /** Insert a component for an entity known to be alive. */
+  private insertComponentUnchecked<T>(entityId: number, component: T): void {
     const componentId = getComponentId(component!.constructor as ComponentClass);
     let storage = this.storages[componentId];
     if (!storage) {
@@ -66,17 +84,16 @@ export class World {
       this.storages[componentId] = storage;
       this.storageVersion++;
     }
-    const isNew = storage.insert(entity.id, component);
+    const isNew = storage.insert(entityId, component);
     if (isNew) {
-      let componentIds = this.entityComponentIds[entity.id];
+      let componentIds = this.entityComponentIds[entityId];
       if (!componentIds) {
         componentIds = [];
-        this.entityComponentIds[entity.id] = componentIds;
+        this.entityComponentIds[entityId] = componentIds;
       }
       componentIds.push(componentId);
-      this.changeTrackers.markAdded(componentId, entity.id);
+      this.changeTrackers.markAdded(componentId, entityId);
     }
-    return true;
   }
 
   removeComponent<T>(entity: Entity, type: ComponentClass<T>): T | undefined {

@@ -71,6 +71,9 @@ Benchmark 默认使用 10,000 个实体执行 100 次联合查询，可通过
 const entity = world.spawn();           // 生成实体
 world.despawn(entity);                  // 销毁实体
 world.isAlive(entity);                  // 检查实体是否存活
+
+// 创建实体时一次性附加初始组件（批量初始化更快）
+const player = world.spawnWith(new Position(0, 0), new Velocity(1, 0));
 ```
 
 ### Component（组件）

@@ -95,6 +95,24 @@ test('SparseSet insert reports whether the entity was newly added', () => {
   assert.equal(storage.length, 1);
 });
 
+test('spawnWith attaches components and preserves duplicate replacement semantics', () => {
+  class Position {
+    constructor(value) {
+      this.value = value;
+    }
+  }
+  class Tag {}
+
+  const world = new World();
+  const entity = world.spawnWith(new Position(1), new Tag(), new Position(2));
+
+  assert.equal(world.entityCount, 1);
+  assert.equal(world.getComponent(entity, Position)?.value, 2);
+  assert.ok(world.hasComponent(entity, Tag));
+  assert.equal(world.despawn(entity), true);
+  assert.equal(world.entityCount, 0);
+});
+
 test('a finished one-shot timer only reports justFinished for one tick', () => {
   const timer = new Timer(1);
   timer.tick(1);

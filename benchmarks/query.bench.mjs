@@ -42,6 +42,20 @@ function createWorld() {
   return world;
 }
 
+function createWorldWithSpawnWith() {
+  const world = new World();
+  for (let i = 0; i < entityCount; i++) {
+    if (i % 4 === 0) {
+      world.spawnWith(new Position(i, i), new Velocity(1, 1), new Active());
+    } else if (i % 2 === 0) {
+      world.spawnWith(new Position(i, i), new Velocity(1, 1));
+    } else {
+      world.spawnWith(new Position(i, i));
+    }
+  }
+  return world;
+}
+
 function measure(name, operations, fn, count = iterations) {
   fn();
   const started = performance.now();
@@ -66,6 +80,16 @@ measure(
   entityCount * 2,
   () => {
     createWorld();
+    return entityCount;
+  },
+  setupIterations,
+);
+
+measure(
+  'spawnWith initial components',
+  entityCount * 2,
+  () => {
+    createWorldWithSpawnWith();
     return entityCount;
   },
   setupIterations,
