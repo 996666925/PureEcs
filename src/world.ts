@@ -225,6 +225,23 @@ export class World {
     return q.iter(this);
   }
 
+  /** Iterate a query without materializing result arrays. */
+  forEachQuery(
+    types: ComponentClass[],
+    callback: (entityId: number, components: unknown[]) => void,
+  ): void {
+    new QueryEngine(types).forEach(this, callback);
+  }
+
+  /** Iterate a filtered query without materializing result arrays. */
+  forEachQueryFiltered(
+    types: ComponentClass[],
+    filters: QueryFilter[],
+    callback: (entityId: number, components: unknown[]) => void,
+  ): void {
+    new QueryEngine(types, filters).forEach(this, callback);
+  }
+
   // ─── Systems ───
 
   /**
