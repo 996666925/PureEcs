@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788873704058,
+  "lastUpdate": 1788874071840,
   "repoUrl": "https://github.com/996666925/PureEcs",
   "entries": {
     "Benchmark": [
@@ -607,6 +607,75 @@ window.BENCHMARK_DATA = {
           {
             "name": "despawn entities",
             "value": 14.51428900000002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "996666925@qq.com",
+            "name": "996666925",
+            "username": "996666925"
+          },
+          "committer": {
+            "email": "996666925@qq.com",
+            "name": "996666925",
+            "username": "996666925"
+          },
+          "distinct": true,
+          "id": "cf44045e3365d5a7ee601fe36b250d80b51f05e5",
+          "message": "release: 发布 v0.0.2",
+          "timestamp": "2026-09-08T21:27:23+08:00",
+          "tree_id": "8f74a2e41d404ee06ec5ba0a5dd6fa866471c09d",
+          "url": "https://github.com/996666925/PureEcs/commit/cf44045e3365d5a7ee601fe36b250d80b51f05e5"
+        },
+        "date": 1788874071049,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "spawn + insert Position/Velocity",
+            "value": 56.484352000000015,
+            "unit": "ms"
+          },
+          {
+            "name": "getComponent lookup",
+            "value": 33.68807199999998,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position",
+            "value": 19.696994999999987,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position + Velocity",
+            "value": 16.045116000000007,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach with With(Active)",
+            "value": 12.154717000000005,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.iter Position + Velocity",
+            "value": 30.640394000000015,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query system (materialized)",
+            "value": 31.951512000000037,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query systemForEach",
+            "value": 13.217850000000055,
+            "unit": "ms"
+          },
+          {
+            "name": "despawn entities",
+            "value": 16.874457000000007,
             "unit": "ms"
           }
         ]
