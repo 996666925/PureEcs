@@ -16,6 +16,8 @@ import {
   SystemSet,
   Timer,
   World,
+  Query,
+  With,
   params,
   system,
 } from '../dist/pureecs.mjs';
@@ -97,6 +99,52 @@ test('Res reports an absent required resource before invoking the system', () =>
   const world = new World();
   const system = params(Res(RequiredResource)).system(() => {});
   assert.throws(() => system(world), /Required resource is missing: RequiredResource/);
+});
+
+test('systemForEach visits Query rows without materializing tuples', () => {
+  class Position {
+    constructor(value) {
+      this.value = value;
+    }
+  }
+  class Velocity {
+    constructor(value) {
+      this.value = value;
+    }
+  }
+
+  const world = new World();
+  const matched = world.spawn();
+  world.insertComponent(matched, new Position(1));
+  world.insertComponent(matched, new Velocity(2));
+  const unmatched = world.spawn();
+  world.insertComponent(unmatched, new Position(10));
+
+  const values = [];
+  const movement = params(Query(Position, Velocity))
+    .systemForEach((position, velocity) => values.push(position.value + velocity.value));
+
+  movement(world);
+  assert.deepEqual(values, [3]);
+});
+
+test('With filters select only entities carrying the filtered component', () => {
+  class Position {}
+  class Active {}
+
+  const world = new World();
+  const active = world.spawn();
+  world.insertComponent(active, new Position());
+  world.insertComponent(active, new Active());
+  const inactive = world.spawn();
+  world.insertComponent(inactive, new Position());
+
+  const values = [];
+  const querySystem = params(Query(Position, With(Active))).systemForEach((position) => values.push(position));
+  querySystem(world);
+
+  assert.equal(values.length, 1);
+  assert.ok(values[0] instanceof Position);
 });
 
 test('DefaultPlugin works without a DOM input target', () => {

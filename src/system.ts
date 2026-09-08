@@ -265,6 +265,14 @@ type InferParams<D extends readonly ParamDescriptor[]> = {
   [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> | ResourceMutDescriptor<any> | EventWriterDescriptor<any> | EventReaderDescriptor<any> | LocalDescriptor<any> | SingleDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
 };
 
+/** Components passed to the allocation-free `systemForEach` callback. */
+type QueryForEachArgs<Q> = Q extends QueryDescriptor<infer T>
+  ? T extends readonly unknown[] ? T : [T]
+  : never;
+
+type FirstDescriptor<D extends readonly ParamDescriptor[]> =
+  D extends readonly [infer F, ...ParamDescriptor[]] ? F : never;
+
 // ─── Query() function ───
 
 /**
@@ -617,6 +625,38 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
       }
 
       fn(...(args as InferParams<D>));
+    };
+  }
+
+  /**
+   * Create a system that visits a single Query() result without materializing
+   * the result array or per-entity tuples. The callback receives the fetched
+   * components as positional arguments, e.g. `(position, velocity) => ...`.
+   *
+   * This fast path intentionally accepts exactly one Query() descriptor. Use
+   * `system()` when resources, commands, locals, or multiple parameters are
+   * needed.
+   */
+  systemForEach(
+    fn: (...components: QueryForEachArgs<FirstDescriptor<D>>) => void,
+  ): SystemFn {
+    if (this.descriptors.length !== 1 || !(this.descriptors[0] instanceof QueryDescriptor)) {
+      throw new TypeError('systemForEach() requires exactly one Query() descriptor');
+    }
+
+    const descriptor = this.descriptors[0] as QueryDescriptor;
+    const queryEngine = new QueryEngine(
+      descriptor.fetches,
+      descriptor.filters,
+      descriptor.entityPositions,
+    );
+
+    return (world: World) => {
+      queryEngine.forEach(world, (_entityId, components) => {
+        // QueryEngine reuses this array; spreading only passes its values and
+        // does not allocate result tuples or retain the reusable buffer.
+        fn(...(components as QueryForEachArgs<FirstDescriptor<D>>));
+      });
     };
   }
 

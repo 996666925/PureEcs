@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { writeFileSync } from 'node:fs';
 
-import { QueryEngine, World } from '../dist/pureecs.mjs';
+import { params, Query, QueryEngine, World } from '../dist/pureecs.mjs';
 
 class Position {
   constructor(x = 0, y = 0) {
@@ -78,6 +78,14 @@ const activeMovementQuery = new QueryEngine(
   [Position, Velocity],
   [{ type: 'with', component: Active }],
 );
+const allocatingMovementSystem = params(Query(Position, Velocity)).system((rows) => {
+  let checksum = 0;
+  for (const [position, velocity] of rows) checksum += position.x + velocity.x;
+  return checksum;
+});
+const forEachMovementSystem = params(Query(Position, Velocity)).systemForEach((position, velocity) => {
+  position.x += velocity.x;
+});
 
 measure('getComponent lookup', entityCount, () => {
   let checksum = 0;
@@ -120,6 +128,16 @@ measure('QueryEngine.iter Position + Velocity', entityCount / 2, () => {
     checksum += components[0].x + components[1].y;
   }
   return checksum;
+});
+
+measure('params Query system (materialized)', entityCount / 2, () => {
+  allocatingMovementSystem(world);
+  return entityCount / 2;
+});
+
+measure('params Query systemForEach', entityCount / 2, () => {
+  forEachMovementSystem(world);
+  return entityCount / 2;
 });
 
 // Prebuild worlds so this metric measures despawn itself rather than component insertion.

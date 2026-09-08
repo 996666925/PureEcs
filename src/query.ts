@@ -102,19 +102,30 @@ export class QueryEngine {
 
     const { storages, filterStorages } = this.resolveStorages(world);
 
-    let smallestIdx = -1;
+    let smallestStorage: SparseSet | undefined;
     let smallestLen = Infinity;
     for (let i = 0; i < storages.length; i++) {
       if (this.entityPositionFlags[i]) continue;
-      const len = storages[i]?.length ?? Infinity;
+      const storage = storages[i];
+      const len = storage?.length ?? Infinity;
       if (len < smallestLen) {
         smallestLen = len;
-        smallestIdx = i;
+        smallestStorage = storage;
       }
     }
 
-    if (smallestIdx < 0) return;
-    const smallestStorage = storages[smallestIdx];
+    // A sparse With() filter is also a valid and often better candidate set.
+    // Without() cannot be used as a candidate because it has no positive set.
+    for (let i = 0; i < this.filters.length; i++) {
+      if (this.filters[i].type !== 'with') continue;
+      const storage = filterStorages[i];
+      const len = storage?.length ?? Infinity;
+      if (len < smallestLen) {
+        smallestLen = len;
+        smallestStorage = storage;
+      }
+    }
+
     if (!smallestStorage) return;
 
     const components: unknown[] = new Array(this.fetches.length);
@@ -126,11 +137,15 @@ export class QueryEngine {
           continue;
         }
         const storage = storages[i];
-        if (!storage || !storage.has(entityId)) {
+        // Components are never stored as undefined (insertComponent rejects
+        // undefined values when resolving the component constructor), so a
+        // single lookup is enough to test presence and fetch the value.
+        const component = storage?.get(entityId);
+        if (component === undefined) {
           allPresent = false;
           break;
         }
-        components[i] = storage.get(entityId);
+        components[i] = component;
       }
       if (!allPresent) return;
 
@@ -164,14 +179,22 @@ export class QueryEngine {
   *iter(world: World): IterableIterator<[number, unknown[]]> {
     if (this.fetches.length === 0) return;
     const { storages, filterStorages } = this.resolveStorages(world);
-    let smallestIdx = -1;
+    let smallestStorage: SparseSet | undefined;
     let smallestLen = Infinity;
     for (let i = 0; i < storages.length; i++) {
       if (this.entityPositionFlags[i]) continue;
-      const len = storages[i]?.length ?? Infinity;
-      if (len < smallestLen) { smallestLen = len; smallestIdx = i; }
+      const storage = storages[i];
+      const len = storage?.length ?? Infinity;
+      if (len < smallestLen) { smallestLen = len; smallestStorage = storage; }
     }
-    const smallestStorage = smallestIdx < 0 ? undefined : storages[smallestIdx];
+
+    for (let i = 0; i < this.filters.length; i++) {
+      if (this.filters[i].type !== 'with') continue;
+      const storage = filterStorages[i];
+      const len = storage?.length ?? Infinity;
+      if (len < smallestLen) { smallestLen = len; smallestStorage = storage; }
+    }
+
     if (!smallestStorage) return;
     for (let denseIndex = 0; denseIndex < smallestStorage.length; denseIndex++) {
       const entityId = smallestStorage.entityAt(denseIndex);
@@ -181,8 +204,9 @@ export class QueryEngine {
         if (this.entityPositionFlags[i]) components[i] = world.getEntityById(entityId);
         else {
           const storage = storages[i];
-          if (!storage || !storage.has(entityId)) { allPresent = false; break; }
-          components[i] = storage.get(entityId);
+          const component = storage?.get(entityId);
+          if (component === undefined) { allPresent = false; break; }
+          components[i] = component;
         }
       }
       if (!allPresent) continue;

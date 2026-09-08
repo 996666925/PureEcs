@@ -32,19 +32,19 @@ const input = params(Velocity).system((velocities) => {
   }
 });
 
-const movement = params(Position, Velocity).system((positions, velocities) => {
+const movement = params(Query(Position, Velocity)).system((rows) => {
   console.log('  [Update] movement: applying velocity');
-  for (let i = 0; i < positions.length; i++) {
-    positions[i].x += velocities[i].x;
-    positions[i].y += velocities[i].y;
+  for (const [position, velocity] of rows) {
+    position.x += velocity.x;
+    position.y += velocity.y;
   }
 });
 
-const render = params(Position, RenderData).system((positions, renderDatas) => {
+const render = params(Query(Position, RenderData)).system((rows) => {
   console.log('  [PostUpdate] render: drawing');
-  for (let i = 0; i < positions.length; i++) {
-    renderDatas[i].lastX = positions[i].x;
-    renderDatas[i].lastY = positions[i].y;
+  for (const [position, renderData] of rows) {
+    renderData.lastX = position.x;
+    renderData.lastY = position.y;
   }
 });
 
@@ -87,9 +87,9 @@ console.log('\n=== Approach 3: Custom Stages ===\n');
 
 const PhysicsStage = new Stage('Physics');
 
-const physicsSys = params(Position, Velocity).system((positions, velocities) => {
-  for (let i = 0; i < positions.length; i++) {
-    console.log(`  [Physics] pos=(${positions[i].x}, ${positions[i].y})`);
+const physicsSys = params(Query(Position, Velocity)).system((rows) => {
+  for (const [position] of rows) {
+    console.log(`  [Physics] pos=(${position.x}, ${position.y})`);
   }
 });
 

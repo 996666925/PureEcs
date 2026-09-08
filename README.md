@@ -103,6 +103,14 @@ const system = params(Position, Velocity).system((positions, velocities) => {
   // positions: 所有拥有 Position 的实体
   // velocities: 所有拥有 Velocity 的实体（独立查询）
 });
+
+// 如果需要处理同一个实体的多个组件，请使用 Query()：
+// 它只遍历一次，并保证组件来自同一个实体
+const movement = params(Query(Position, Velocity)).system((rows) => {
+  for (const [position, velocity] of rows) {
+    position.x += velocity.x;
+  }
+});
 ```
 
 `params()` 还支持注入必需资源和命令，以单值（非数组）传入回调。缺少 `Res()`
@@ -236,7 +244,19 @@ params(ResMut(GameState)).system((stateMut) => {
 | 方法 | 额外参数 | 适用场景 |
 |------|---------|---------|
 | `.system(fn)` | 组件数组 + 资源/命令单值 | 操作组件、读资源、发命令 |
+| `.systemForEach(fn)` | 单个 `Query()` 的组件逐实体传入 | 高频查询，避免结果数组和 tuple 分配 |
 | `.systemWithWorld(fn)` | `world` + `entityIds` + 组件数组 + 资源/命令 | 需要访问 World |
+
+`systemForEach()` 是单个 `Query()` 的无分配快捷路径。组件会作为位置参数传入，
+不会创建查询结果数组或每实体 tuple：
+
+```ts
+params(Query(Position, Velocity)).systemForEach((position, velocity) => {
+  position.x += velocity.x;
+});
+```
+
+它只接受一个 `Query()` 描述符；需要资源、命令或多个参数时请使用 `.system()`。
 
 ```ts
 // 推荐：用 Query(Entity, ...) 获取实体 ID（Guaranteed alignment）
@@ -458,7 +478,7 @@ params(ResMut(Timer)).system((timer) => {
 `Time` 是全局时间资源，提供帧间隔（delta）和总运行时长。添加 `DefaultPlugin` 即可自动注入并每帧更新：
 
 ```ts
-import { DefaultPlugin, Res, params } from 'pureecs';
+import { DefaultPlugin, Query, Res, params } from 'pureecs';
 
 const app = new App();
 app.addPlugin(new DefaultPlugin()); // 自动注入 Time + 每帧更新
@@ -473,9 +493,9 @@ app.update(); // 无需手动传 delta
 系统中直接读 `Res(Time)`即可：
 
 ```ts
-params(Position, Velocity, Res(Time)).system((pos, vel, time) => {
-  for (let i = 0; i < pos.length; i++) {
-    pos[i].x += vel[i].x * time.delta;
+params(Query(Position, Velocity), Res(Time)).system((rows, time) => {
+  for (const [pos, vel] of rows) {
+    pos.x += vel.x * time.delta;
   }
 });
 

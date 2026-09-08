@@ -143,9 +143,9 @@ export class Timer {
  * app.update();
  *
  * // In a system
- * params(Position, Velocity, Res(Time)).system((pos, vel, time) => {
- *   for (let i = 0; i < pos.length; i++) {
- *     pos[i].x += vel[i].x * time.delta;
+ * params(Query(Position, Velocity), Res(Time)).system((rows, time) => {
+ *   for (const [pos, vel] of rows) {
+ *     pos.x += vel.x * time.delta;
  *   }
  * });
  * ```
