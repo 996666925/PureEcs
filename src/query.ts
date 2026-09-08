@@ -1,5 +1,6 @@
 import type { ComponentClass } from './component';
 import { getComponentId } from './component';
+import { Entity } from './entity';
 import type { World } from './world';
 import type { SparseSet } from './storage';
 
@@ -63,7 +64,9 @@ export class QueryEngine {
     this.fetches = fetches;
     this.filters = filters;
     this.entityPositions = entityPositions;
-    this.entityPositionFlags = fetches.map((_type, index) => entityPositions.has(index));
+    this.entityPositionFlags = fetches.map(
+      (type, index) => entityPositions.has(index) || type === Entity,
+    );
     this.fetchIds = fetches.map((type, index) =>
       this.entityPositionFlags[index] ? -1 : getComponentId(type),
     );
@@ -126,10 +129,8 @@ export class QueryEngine {
       }
     }
 
-    if (!smallestStorage) return;
-
     const components: unknown[] = new Array(this.fetches.length);
-    smallestStorage.forEachEntity((entityId) => {
+    const visit = (entityId: number): void => {
       let allPresent = true;
       for (let i = 0; i < this.fetches.length; i++) {
         if (this.entityPositionFlags[i]) {
@@ -170,7 +171,13 @@ export class QueryEngine {
         if (!passesFilters) break;
       }
       if (passesFilters) callback(entityId, components);
-    });
+    };
+
+    if (smallestStorage) {
+      smallestStorage.forEachEntity(visit);
+    } else if (this.entityPositionFlags.some(Boolean)) {
+      world.forEachAliveEntity(visit);
+    }
   }
 
   /** @internal Allocation-free fast path for a one-fetch query. */
@@ -240,9 +247,7 @@ export class QueryEngine {
         candidate = storage;
       }
     }
-    if (!candidate) return;
-
-    candidate.forEachEntity((entityId) => {
+    const visit = (entityId: number): void => {
       for (let i = 0; i < this.filters.length; i++) {
         const filter = this.filters[i];
         const storage = filterStorages[i];
@@ -254,7 +259,13 @@ export class QueryEngine {
         }
       }
       callback(entityId, storages);
-    });
+    };
+
+    if (candidate) {
+      candidate.forEachEntity(visit);
+    } else if (this.entityPositionFlags.some(Boolean)) {
+      world.forEachAliveEntity(visit);
+    }
   }
 
   /**
@@ -279,9 +290,28 @@ export class QueryEngine {
       if (len < smallestLen) { smallestLen = len; smallestStorage = storage; }
     }
 
-    if (!smallestStorage) return;
-    for (let denseIndex = 0; denseIndex < smallestStorage.length; denseIndex++) {
-      const entityId = smallestStorage.entityAt(denseIndex);
+    if (smallestStorage) {
+      for (let denseIndex = 0; denseIndex < smallestStorage.length; denseIndex++) {
+        const entityId = smallestStorage.entityAt(denseIndex);
+        const result = this.matchEntity(world, entityId, storages, filterStorages);
+        if (result) yield [entityId, result];
+      }
+    } else if (this.entityPositionFlags.some(Boolean)) {
+      const matching: [number, unknown[]][] = [];
+      world.forEachAliveEntity((entityId) => {
+        const result = this.matchEntity(world, entityId, storages, filterStorages);
+        if (result) matching.push([entityId, result]);
+      });
+      yield* matching;
+    }
+  }
+
+  private matchEntity(
+    world: World,
+    entityId: number,
+    storages: (SparseSet | undefined)[],
+    filterStorages: (SparseSet | undefined)[],
+  ): unknown[] | undefined {
       const components: unknown[] = new Array(this.fetches.length);
       let allPresent = true;
       for (let i = 0; i < this.fetches.length; i++) {
@@ -293,7 +323,7 @@ export class QueryEngine {
           components[i] = component;
         }
       }
-      if (!allPresent) continue;
+      if (!allPresent) return undefined;
       let passesFilters = true;
       for (let i = 0; i < this.filters.length; i++) {
         const filter = this.filters[i];
@@ -306,8 +336,7 @@ export class QueryEngine {
         }
         if (!passesFilters) break;
       }
-      if (passesFilters) yield [entityId, components];
-    }
+      return passesFilters ? components : undefined;
   }
 }
 

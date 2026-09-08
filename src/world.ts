@@ -67,6 +67,11 @@ export class World {
     return this.entityAlloc.getEntity(id);
   }
 
+  /** @internal Iterate all currently alive entity IDs for Entity-only queries. */
+  forEachAliveEntity(callback: (id: number) => void): void {
+    this.entityAlloc.forEachAlive(callback);
+  }
+
   // ─── Component operations ───
 
   insertComponent<T>(entity: Entity, component: T): boolean {

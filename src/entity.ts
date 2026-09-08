@@ -66,6 +66,13 @@ export class EntityAlloc {
     return new Entity(id, entry.generation);
   }
 
+  /** @internal Iterate all currently alive entity IDs without allocating handles. */
+  forEachAlive(callback: (id: number) => void): void {
+    for (let id = 0; id < this.entities.length; id++) {
+      if (this.entities[id].alive) callback(id);
+    }
+  }
+
   aliveCount(): number {
     return this.alive;
   }

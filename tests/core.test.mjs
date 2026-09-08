@@ -215,6 +215,39 @@ test('systemForEach supports three-fetch queries and Entity handles', () => {
   assert.ok(entities.some((entity) => entity.equals(second)));
 });
 
+test('Entity-only queries visit every alive entity', () => {
+  class Position {}
+
+  const world = new World();
+  const first = world.spawn();
+  const second = world.spawn();
+  world.spawn();
+  world.despawn(second);
+  world.insertComponent(first, new Position());
+
+  const ids = [...world.query(Entity)].map(([id, components]) => {
+    assert.equal(components.length, 1);
+    assert.ok(components[0] instanceof Entity);
+    return id;
+  });
+
+  assert.deepEqual(ids, [first.id, first.id + 2]);
+});
+
+test('Entity-only queries apply filters', () => {
+  class Active {}
+
+  const world = new World();
+  const active = world.spawn();
+  const inactive = world.spawn();
+  world.insertComponent(active, new Active());
+
+  const ids = [...world.queryFiltered([Entity], [{ type: 'without', component: Active }])]
+    .map(([id]) => id);
+
+  assert.deepEqual(ids, [inactive.id]);
+});
+
 test('DefaultPlugin works without a DOM input target', () => {
   const app = new App().addPlugin(new DefaultPlugin());
   assert.doesNotThrow(() => app.update());
