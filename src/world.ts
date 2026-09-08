@@ -17,7 +17,8 @@ export type { SystemFn };
  */
 export class World {
   private entityAlloc = new EntityAlloc();
-  private storages: Map<number, SparseSet> = new Map();
+  /** Component storages indexed directly by their compact component ID. */
+  private storages: (SparseSet | undefined)[] = [];
   private storageVersion = 0;
   private resources = new ResourceStore();
   private changeTrackers = new ChangeTrackers();
@@ -33,8 +34,8 @@ export class World {
 
   despawn(entity: Entity): boolean {
     if (!this.entityAlloc.dealloc(entity)) return false;
-    for (const storage of this.storages.values()) {
-      storage.remove(entity.id);
+    for (let i = 0; i < this.storages.length; i++) {
+      this.storages[i]?.remove(entity.id);
     }
     return true;
   }
@@ -53,10 +54,10 @@ export class World {
   insertComponent<T>(entity: Entity, component: T): boolean {
     if (!this.isAlive(entity)) return false;
     const componentId = getComponentId(component!.constructor as ComponentClass);
-    let storage = this.storages.get(componentId);
+    let storage = this.storages[componentId];
     if (!storage) {
       storage = new SparseSet<T>();
-      this.storages.set(componentId, storage);
+      this.storages[componentId] = storage;
       this.storageVersion++;
     }
     const isNew = !storage.has(entity.id);
@@ -70,7 +71,7 @@ export class World {
   removeComponent<T>(entity: Entity, type: ComponentClass<T>): T | undefined {
     if (!this.isAlive(entity)) return undefined;
     const componentId = getComponentId(type);
-    const storage = this.storages.get(componentId);
+    const storage = this.storages[componentId];
     if (!storage) return undefined;
     return storage.remove(entity.id) as T | undefined;
   }
@@ -78,7 +79,7 @@ export class World {
   getComponent<T>(entity: Entity, type: ComponentClass<T>): T | undefined {
     if (!this.isAlive(entity)) return undefined;
     const componentId = getComponentId(type);
-    const storage = this.storages.get(componentId);
+    const storage = this.storages[componentId];
     if (!storage) return undefined;
     return storage.get(entity.id) as T | undefined;
   }
@@ -86,7 +87,7 @@ export class World {
   getComponentMut<T>(entity: Entity, type: ComponentClass<T>): Mut<T> | undefined {
     if (!this.isAlive(entity)) return undefined;
     const componentId = getComponentId(type);
-    const storage = this.storages.get(componentId);
+    const storage = this.storages[componentId];
     if (!storage) return undefined;
     const value = storage.get(entity.id) as T | undefined;
     if (value === undefined) return undefined;
@@ -96,17 +97,17 @@ export class World {
   hasComponent(entity: Entity, type: ComponentClass): boolean {
     if (!this.isAlive(entity)) return false;
     const componentId = getComponentId(type);
-    return this.storages.get(componentId)?.has(entity.id) ?? false;
+    return this.storages[componentId]?.has(entity.id) ?? false;
   }
 
   getComponentStorage(type: ComponentClass): SparseSet | undefined {
     const componentId = getComponentId(type);
-    return this.storages.get(componentId);
+    return this.storages[componentId];
   }
 
   /** @internal Fast storage lookup for precompiled query plans. */
   getComponentStorageById(componentId: number): SparseSet | undefined {
-    return this.storages.get(componentId);
+    return this.storages[componentId];
   }
 
   /** @internal Monotonic version used to invalidate compiled query storage refs. */
