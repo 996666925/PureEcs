@@ -49,6 +49,26 @@ test('stale entity handles cannot access a reused entity id', () => {
   assert.equal(world.getComponent(current, Value), undefined);
 });
 
+test('despawn removes every owned component after component removal and reinsertion', () => {
+  class Position {}
+  class Velocity {}
+  class Health {}
+
+  const world = new World();
+  const entity = world.spawn();
+  world.insertComponent(entity, new Position());
+  world.insertComponent(entity, new Velocity());
+  world.insertComponent(entity, new Health());
+  world.removeComponent(entity, Velocity);
+  world.insertComponent(entity, new Velocity());
+
+  assert.equal(world.despawn(entity), true);
+  const reused = world.spawn();
+  assert.equal(world.getComponent(reused, Position), undefined);
+  assert.equal(world.getComponent(reused, Velocity), undefined);
+  assert.equal(world.getComponent(reused, Health), undefined);
+});
+
 test('resource removal returns the removed resource', () => {
   class Resource {}
 

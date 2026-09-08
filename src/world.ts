@@ -19,6 +19,8 @@ export class World {
   private entityAlloc = new EntityAlloc();
   /** Component storages indexed directly by their compact component ID. */
   private storages: (SparseSet | undefined)[] = [];
+  /** Component storage IDs owned by each entity (kept sparse by entity ID). */
+  private entityComponentIds: (number[] | undefined)[] = [];
   private storageVersion = 0;
   private resources = new ResourceStore();
   private changeTrackers = new ChangeTrackers();
@@ -34,8 +36,12 @@ export class World {
 
   despawn(entity: Entity): boolean {
     if (!this.entityAlloc.dealloc(entity)) return false;
-    for (let i = 0; i < this.storages.length; i++) {
-      this.storages[i]?.remove(entity.id);
+    const componentIds = this.entityComponentIds[entity.id];
+    if (componentIds) {
+      for (let i = 0; i < componentIds.length; i++) {
+        this.storages[componentIds[i]]!.remove(entity.id);
+      }
+      this.entityComponentIds[entity.id] = undefined;
     }
     return true;
   }
@@ -63,6 +69,12 @@ export class World {
     const isNew = !storage.has(entity.id);
     storage.insert(entity.id, component);
     if (isNew) {
+      let componentIds = this.entityComponentIds[entity.id];
+      if (!componentIds) {
+        componentIds = [];
+        this.entityComponentIds[entity.id] = componentIds;
+      }
+      componentIds.push(componentId);
       this.changeTrackers.markAdded(componentId, entity.id);
     }
     return true;
@@ -73,7 +85,19 @@ export class World {
     const componentId = getComponentId(type);
     const storage = this.storages[componentId];
     if (!storage) return undefined;
-    return storage.remove(entity.id) as T | undefined;
+    const removed = storage.remove(entity.id) as T | undefined;
+    if (removed !== undefined) {
+      const componentIds = this.entityComponentIds[entity.id];
+      if (componentIds) {
+        const index = componentIds.indexOf(componentId);
+        if (index !== -1) {
+          componentIds[index] = componentIds[componentIds.length - 1];
+          componentIds.pop();
+          if (componentIds.length === 0) this.entityComponentIds[entity.id] = undefined;
+        }
+      }
+    }
+    return removed;
   }
 
   getComponent<T>(entity: Entity, type: ComponentClass<T>): T | undefined {

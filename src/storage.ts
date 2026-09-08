@@ -3,8 +3,8 @@
  * Provides O(1) insert, remove, lookup, and efficient iteration.
  */
 export class SparseSet<T = unknown> {
-  /** Maps entity id -> index in dense array */
-  private sparse: Map<number, number> = new Map();
+  /** Maps entity id -> index in dense array. Entity IDs are integer handles. */
+  private sparse: (number | undefined)[] = [];
   /** Dense array of component data */
   private dense: T[] = [];
   /** Dense array of entity ids (parallel to dense) */
@@ -20,21 +20,21 @@ export class SparseSet<T = unknown> {
   }
 
   insert(entityId: number, component: T): void {
-    const denseIndex = this.sparse.get(entityId);
+    const denseIndex = this.sparse[entityId];
     if (denseIndex !== undefined) {
       // Update existing
       this.dense[denseIndex] = component;
     } else {
       // Insert new
       const newIndex = this.dense.length;
-      this.sparse.set(entityId, newIndex);
+      this.sparse[entityId] = newIndex;
       this.dense.push(component);
       this.entities.push(entityId);
     }
   }
 
   remove(entityId: number): T | undefined {
-    const denseIndex = this.sparse.get(entityId);
+    const denseIndex = this.sparse[entityId];
     if (denseIndex === undefined) return undefined;
 
     const lastDenseIndex = this.dense.length - 1;
@@ -45,25 +45,25 @@ export class SparseSet<T = unknown> {
       const lastEntityId = this.entities[lastDenseIndex];
       this.dense[denseIndex] = this.dense[lastDenseIndex];
       this.entities[denseIndex] = lastEntityId;
-      this.sparse.set(lastEntityId, denseIndex);
+      this.sparse[lastEntityId] = denseIndex;
     }
 
     // Remove last
     this.dense.pop();
     this.entities.pop();
-    this.sparse.delete(entityId);
+    this.sparse[entityId] = undefined;
 
     return removed;
   }
 
   get(entityId: number): T | undefined {
-    const denseIndex = this.sparse.get(entityId);
+    const denseIndex = this.sparse[entityId];
     if (denseIndex === undefined) return undefined;
     return this.dense[denseIndex];
   }
 
   has(entityId: number): boolean {
-    return this.sparse.has(entityId);
+    return this.sparse[entityId] !== undefined;
   }
 
   /**
@@ -117,7 +117,7 @@ export class SparseSet<T = unknown> {
   }
 
   clear(): void {
-    this.sparse.clear();
+    this.sparse.length = 0;
     this.dense.length = 0;
     this.entities.length = 0;
   }

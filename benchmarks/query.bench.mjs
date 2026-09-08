@@ -122,11 +122,14 @@ measure('QueryEngine.iter Position + Velocity', entityCount / 2, () => {
   return checksum;
 });
 
+// Prebuild worlds so this metric measures despawn itself rather than component insertion.
+const despawnWorlds = Array.from({ length: setupIterations + 1 }, createWorld);
+let despawnWorldIndex = 0;
 measure(
   'despawn entities',
   entityCount / 2,
   () => {
-    const temporaryWorld = createWorld();
+    const temporaryWorld = despawnWorlds[despawnWorldIndex++];
     let checksum = 0;
     for (let i = 0; i < entityCount; i += 2) {
       checksum += temporaryWorld.despawn(temporaryWorld.getEntityById(i)) ? 1 : 0;
