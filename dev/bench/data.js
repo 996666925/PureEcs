@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788842564700,
+  "lastUpdate": 1788842992135,
   "repoUrl": "https://github.com/996666925/PureEcs",
   "entries": {
     "Benchmark": [
@@ -115,6 +115,63 @@ window.BENCHMARK_DATA = {
           {
             "name": "despawn entities",
             "value": 69.73838700000005,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hanweizhao@qcwlcloud.com",
+            "name": "996666925"
+          },
+          "committer": {
+            "email": "hanweizhao@qcwlcloud.com",
+            "name": "996666925"
+          },
+          "distinct": true,
+          "id": "556f4f1700a065fe1ece51e149c0e9197d49c3e3",
+          "message": "perf(world): 用按组件 ID 直接索引的数组替换 Map 存储",
+          "timestamp": "2026-09-08T12:49:23+08:00",
+          "tree_id": "bc099ae89985504b560dc479024c0f6934ec3048",
+          "url": "https://github.com/996666925/PureEcs/commit/556f4f1700a065fe1ece51e149c0e9197d49c3e3"
+        },
+        "date": 1788842991453,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "spawn + insert Position/Velocity",
+            "value": 48.056906,
+            "unit": "ms"
+          },
+          {
+            "name": "getComponent lookup",
+            "value": 47.71647499999999,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position",
+            "value": 56.43072799999999,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position + Velocity",
+            "value": 44.84252600000002,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach with With(Active)",
+            "value": 55.830805999999995,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.iter Position + Velocity",
+            "value": 65.75663100000003,
+            "unit": "ms"
+          },
+          {
+            "name": "despawn entities",
+            "value": 63.12759,
             "unit": "ms"
           }
         ]
