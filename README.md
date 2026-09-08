@@ -48,6 +48,19 @@ new App()
   .update();
 ```
 
+## 测试与 Benchmark
+
+```bash
+pnpm test
+pnpm benchmark
+```
+
+Benchmark 默认使用 10,000 个实体执行 100 次联合查询，可通过
+`BENCH_ENTITIES` 和 `BENCH_ITERATIONS` 调整规模。每次 push 或 pull request
+都会由 GitHub Actions 自动执行构建、测试和 benchmark。benchmark action 会将
+`main` 分支的结果保存为历史基线，并在后续提交或 PR 中逐项计算耗时变化；单项
+变慢达到 5% 时会在检查结果中告警。
+
 ## 核心概念
 
 ### Entity（实体）
