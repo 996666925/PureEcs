@@ -18,6 +18,7 @@ export type { SystemFn };
 export class World {
   private entityAlloc = new EntityAlloc();
   private storages: Map<number, SparseSet> = new Map();
+  private storageVersion = 0;
   private resources = new ResourceStore();
   private changeTrackers = new ChangeTrackers();
   private scheduler = new Scheduler();
@@ -56,6 +57,7 @@ export class World {
     if (!storage) {
       storage = new SparseSet<T>();
       this.storages.set(componentId, storage);
+      this.storageVersion++;
     }
     const isNew = !storage.has(entity.id);
     storage.insert(entity.id, component);
@@ -102,6 +104,16 @@ export class World {
     return this.storages.get(componentId);
   }
 
+  /** @internal Fast storage lookup for precompiled query plans. */
+  getComponentStorageById(componentId: number): SparseSet | undefined {
+    return this.storages.get(componentId);
+  }
+
+  /** @internal Monotonic version used to invalidate compiled query storage refs. */
+  get componentStorageVersion(): number {
+    return this.storageVersion;
+  }
+
   // ─── Change tracking ───
 
   /** @internal */
@@ -109,9 +121,19 @@ export class World {
     return this.changeTrackers.isAdded(getComponentId(type), entityId);
   }
 
+  /** @internal Fast change-tracking lookup for precompiled query plans. */
+  isComponentAddedById(entityId: number, componentId: number): boolean {
+    return this.changeTrackers.isAdded(componentId, entityId);
+  }
+
   /** @internal */
   isComponentChanged(entityId: number, type: ComponentClass): boolean {
     return this.changeTrackers.isChanged(getComponentId(type), entityId);
+  }
+
+  /** @internal Fast change-tracking lookup for precompiled query plans. */
+  isComponentChangedById(entityId: number, componentId: number): boolean {
+    return this.changeTrackers.isChanged(componentId, entityId);
   }
 
   // ─── Resource operations ───

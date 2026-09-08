@@ -534,6 +534,11 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
     const queryDescs = queryIndices.map((idx) => ({
       idx,
       qd: this.descriptors[idx] as QueryDescriptor,
+      qe: new QueryEngine(
+        (this.descriptors[idx] as QueryDescriptor).fetches,
+        (this.descriptors[idx] as QueryDescriptor).filters,
+        (this.descriptors[idx] as QueryDescriptor).entityPositions,
+      ),
     }));
 
     // Pre-resolve SingleDescriptors
@@ -599,10 +604,11 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
       }
 
       // Independent query for each QueryDescriptor
-      for (const { idx } of queryDescs) {
+      for (const { idx, qd, qe } of queryDescs) {
         args[idx] = executeQueryDescriptor(
           world,
-          this.descriptors[idx] as QueryDescriptor,
+          qd,
+          qe,
         );
       }
 
@@ -627,6 +633,11 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
 
     const localCache: { idx: number; value: unknown }[] = [];
     const eventReaderCache: { idx: number; reader: EventReader<unknown> }[] = [];
+    const queryEngines = new Map<number, QueryEngine>();
+    for (const idx of queryIndices) {
+      const qd = this.descriptors[idx] as QueryDescriptor;
+      queryEngines.set(idx, new QueryEngine(qd.fetches, qd.filters, qd.entityPositions));
+    }
 
     return (world: World) => {
       const ids: number[] = [];
@@ -687,6 +698,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         const result = executeQueryDescriptorWithIds(
           world,
           this.descriptors[idx] as QueryDescriptor,
+          queryEngines.get(idx)!,
         );
         if (ids.length === 0 && idx === queryIndices[0]) {
           ids.push(...result.ids);
@@ -716,36 +728,30 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
 // ─── QueryDescriptor execution ───
 
 /** Run a QueryDescriptor — multi-fetch returns tuple arrays, single-fetch returns plain arrays */
-function executeQueryDescriptor(world: World, qd: QueryDescriptor): unknown[] {
-  const qe = new QueryEngine(qd.fetches, qd.filters, qd.entityPositions);
+function executeQueryDescriptor(world: World, qd: QueryDescriptor, qe: QueryEngine): unknown[] {
   const items: unknown[] = [];
   if (qd.fetches.length === 1) {
-    for (const [, comps] of qe.iter(world)) {
-      items.push(comps[0]);
-    }
+    qe.forEach(world, (_id, comps) => items.push(comps[0]));
   } else {
-    for (const [, comps] of qe.iter(world)) {
-      items.push(comps); // tuple: [C1, C2, ...]
-    }
+    qe.forEach(world, (_id, comps) => items.push(comps.slice()));
   }
   return items;
 }
 
 /** Same as above but also collects entity IDs */
-function executeQueryDescriptorWithIds(world: World, qd: QueryDescriptor): { ids: number[]; items: unknown[] } {
-  const qe = new QueryEngine(qd.fetches, qd.filters, qd.entityPositions);
+function executeQueryDescriptorWithIds(world: World, qd: QueryDescriptor, qe: QueryEngine): { ids: number[]; items: unknown[] } {
   const ids: number[] = [];
   const items: unknown[] = [];
   if (qd.fetches.length === 1) {
-    for (const [id, comps] of qe.iter(world)) {
+    qe.forEach(world, (id, comps) => {
       ids.push(id);
       items.push(comps[0]);
-    }
+    });
   } else {
-    for (const [id, comps] of qe.iter(world)) {
+    qe.forEach(world, (id, comps) => {
       ids.push(id);
-      items.push(comps); // tuple: [C1, C2, ...]
-    }
+      items.push(comps.slice());
+    });
   }
   return { ids, items };
 }
