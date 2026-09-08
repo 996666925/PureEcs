@@ -13,6 +13,7 @@ import {
   Res,
   ResMut,
   ResourceStore,
+  SparseSet,
   SystemSet,
   Timer,
   World,
@@ -81,6 +82,17 @@ test('resource removal returns the removed resource', () => {
 
   assert.strictEqual(store.remove(Resource), resource);
   assert.equal(store.has(Resource), false);
+});
+
+test('SparseSet insert reports whether the entity was newly added', () => {
+  const storage = new SparseSet();
+  const first = { value: 1 };
+  const replacement = { value: 2 };
+
+  assert.equal(storage.insert(7, first), true);
+  assert.equal(storage.insert(7, replacement), false);
+  assert.strictEqual(storage.get(7), replacement);
+  assert.equal(storage.length, 1);
 });
 
 test('a finished one-shot timer only reports justFinished for one tick', () => {

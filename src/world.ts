@@ -66,8 +66,7 @@ export class World {
       this.storages[componentId] = storage;
       this.storageVersion++;
     }
-    const isNew = !storage.has(entity.id);
-    storage.insert(entity.id, component);
+    const isNew = storage.insert(entity.id, component);
     if (isNew) {
       let componentIds = this.entityComponentIds[entity.id];
       if (!componentIds) {

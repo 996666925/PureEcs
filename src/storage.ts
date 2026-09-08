@@ -19,17 +19,24 @@ export class SparseSet<T = unknown> {
     return this.entities[index];
   }
 
-  insert(entityId: number, component: T): void {
+  /**
+   * Insert or replace a component and report whether it was newly inserted.
+   * The sparse index lookup is shared with the mutation so callers do not
+   * need a separate `has()` check on this hot path.
+   */
+  insert(entityId: number, component: T): boolean {
     const denseIndex = this.sparse[entityId];
     if (denseIndex !== undefined) {
       // Update existing
       this.dense[denseIndex] = component;
+      return false;
     } else {
       // Insert new
       const newIndex = this.dense.length;
       this.sparse[entityId] = newIndex;
       this.dense.push(component);
       this.entities.push(entityId);
+      return true;
     }
   }
 
