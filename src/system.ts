@@ -545,6 +545,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
     const singleDescs = singleEntries.map(({ idx, descriptor }) => ({
       idx,
       sd: descriptor,
+      qe: new QueryEngine(descriptor.fetches, descriptor.filters, descriptor.entityPositions),
     }));
 
     // Per-closure cache for Local descriptors (lazy init on first run)
@@ -613,8 +614,8 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
       }
 
       // Execute Single descriptors — inject first match as single value
-      for (const { idx, sd } of singleDescs) {
-        args[idx] = executeSingleDescriptor(world, sd);
+      for (const { idx, sd, qe } of singleDescs) {
+        args[idx] = executeSingleDescriptor(world, sd, qe);
       }
 
       fn(...(args as InferParams<D>));
@@ -637,6 +638,10 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
     for (const idx of queryIndices) {
       const qd = this.descriptors[idx] as QueryDescriptor;
       queryEngines.set(idx, new QueryEngine(qd.fetches, qd.filters, qd.entityPositions));
+    }
+    const singleEngines = new Map<number, QueryEngine>();
+    for (const { idx, descriptor } of singleEntries) {
+      singleEngines.set(idx, new QueryEngine(descriptor.fetches, descriptor.filters, descriptor.entityPositions));
     }
 
     return (world: World) => {
@@ -708,7 +713,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
 
       // Execute Single descriptors
       for (const { idx, descriptor } of singleEntries) {
-        const result = executeSingleDescriptorWithId(world, descriptor);
+        const result = executeSingleDescriptorWithId(world, descriptor, singleEngines.get(idx)!);
         if (result !== undefined) {
           const [firstId, value] = result;
           if (ids.length === 0 && idx === singleEntries[0].idx) {
@@ -759,8 +764,7 @@ function executeQueryDescriptorWithIds(world: World, qd: QueryDescriptor, qe: Qu
 // ─── SingleDescriptor execution ───
 
 /** Run a SingleDescriptor — returns only the first matching entity's components as a single value */
-function executeSingleDescriptor(world: World, sd: SingleDescriptor): unknown {
-  const qe = new QueryEngine(sd.fetches, sd.filters, sd.entityPositions);
+function executeSingleDescriptor(world: World, sd: SingleDescriptor, qe: QueryEngine): unknown {
   const first = qe.iter(world).next();
   if (first.done) return undefined;
 
@@ -772,8 +776,7 @@ function executeSingleDescriptor(world: World, sd: SingleDescriptor): unknown {
 }
 
 /** Same as above but also returns the entity ID */
-function executeSingleDescriptorWithId(world: World, sd: SingleDescriptor): [number, unknown] | undefined {
-  const qe = new QueryEngine(sd.fetches, sd.filters, sd.entityPositions);
+function executeSingleDescriptorWithId(world: World, sd: SingleDescriptor, qe: QueryEngine): [number, unknown] | undefined {
   const first = qe.iter(world).next();
   if (first.done) return undefined;
 
