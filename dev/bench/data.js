@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788878544937,
+  "lastUpdate": 1788918413408,
   "repoUrl": "https://github.com/996666925/PureEcs",
   "entries": {
     "Benchmark": [
@@ -972,6 +972,78 @@ window.BENCHMARK_DATA = {
           {
             "name": "despawn entities",
             "value": 13.791787,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hanweizhao@qcwlcloud.com",
+            "name": "996666925"
+          },
+          "committer": {
+            "email": "hanweizhao@qcwlcloud.com",
+            "name": "996666925"
+          },
+          "distinct": true,
+          "id": "cd90b3aa4236059e4abb08b04002b933a17c641a",
+          "message": "feat(state): 新增 Bevy 风格状态管理与 DespawnOnExit",
+          "timestamp": "2026-09-09T09:39:12+08:00",
+          "tree_id": "6e19ea773881e64343e1268ffc3dee42eda85f82",
+          "url": "https://github.com/996666925/PureEcs/commit/cd90b3aa4236059e4abb08b04002b933a17c641a"
+        },
+        "date": 1788918412904,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "spawn + insert Position/Velocity",
+            "value": 53.868055999999996,
+            "unit": "ms"
+          },
+          {
+            "name": "spawnWith initial components",
+            "value": 33.44262699999999,
+            "unit": "ms"
+          },
+          {
+            "name": "getComponent lookup",
+            "value": 32.076047999999986,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position",
+            "value": 19.149475999999993,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position + Velocity",
+            "value": 15.591376999999994,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach with With(Active)",
+            "value": 11.63243700000001,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.iter Position + Velocity",
+            "value": 29.053083000000015,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query system (materialized)",
+            "value": 32.658011999999985,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query systemForEach",
+            "value": 13.304079000000002,
+            "unit": "ms"
+          },
+          {
+            "name": "despawn entities",
+            "value": 11.918881999999996,
             "unit": "ms"
           }
         ]
