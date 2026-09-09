@@ -2,7 +2,7 @@ import { World, type SystemFn, type SystemAddOptions } from './world';
 import { type SystemConfig, Stage, SystemBuilder } from './scheduler';
 import type { Plugin } from './plugin';
 import type { ComponentClass } from './component';
-import type { StateClass } from './state';
+import type { StateDefinition, StateSpec } from './state';
 import type { Entity } from './entity';
 import type { Observer } from './event';
 
@@ -82,10 +82,10 @@ export class App {
     return this;
   }
 
-  /** Register a State resource and its initial value. */
-  initState<S>(type: StateClass<S>, initial: S): this {
+  /** Register an enum-like state definition. */
+  addState<S extends StateSpec>(definition: StateDefinition<S>): this {
     this.assertActive();
-    this.world.initState(type, initial);
+    this.world.addState(definition);
     return this;
   }
 

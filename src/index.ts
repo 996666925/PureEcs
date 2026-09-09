@@ -8,14 +8,14 @@ export { App, system, Stages, Stage, type SystemConfig } from './app';
 export { type Plugin, PluginGroup, DefaultPlugin, createTimeSystem } from './plugin';
 
 // System builder
-export { params, Query, Single, QueryDescriptor, SingleDescriptor, ParamsBuilder, Res, ResMut, ResourceDescriptor, ResourceMutDescriptor, Cmd, CommandsDescriptor, Local, LocalDescriptor } from './system';
+export { params, Query, Single, QueryDescriptor, SingleDescriptor, ParamsBuilder, Res, ResMut, ResourceDescriptor, ResourceMutDescriptor, State, StateDescriptor, NextState, NextStateDescriptor, Cmd, CommandsDescriptor, Local, LocalDescriptor } from './system';
 
 // Scheduler
 export { Scheduler, SystemBuilder, SystemSet, CircularDependencyError, type SystemCondition } from './scheduler';
 
 // States
-export { State, NextState, DespawnOnExit, StateStage, OnEnter, OnExit, OnTransition, inState } from './state';
-export type { StateClass, StateLifecycle } from './state';
+export { defineState, StateStore, NextStateHandle, DespawnOnExit, StateStage, OnEnter, OnExit, OnTransition, inState } from './state';
+export type { StateDefinition, StateMember, StateSpec, StateValue, StateLifecycle } from './state';
 
 // Entity
 export { Entity } from './entity';

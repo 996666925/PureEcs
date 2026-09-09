@@ -8,7 +8,7 @@ import { Commands } from './commands';
 import { ChangeTrackers, Mut, ResourceMut } from './change-tracking';
 import { Events, ObserverRegistry, type Observer } from './event';
 import { Scheduler, Stages, type Stage, type SystemConfig, type SystemFn, SystemBuilder } from './scheduler';
-import { DespawnOnExit, NextState, State, type StateClass, type StateStage, OnEnter, OnExit, OnTransition } from './state';
+import { DespawnOnExit, NextStateHandle, StateStore, type StateDefinition, type StateSpec, type StateStage, OnEnter, OnExit, OnTransition } from './state';
 
 export type { SystemFn };
 
@@ -29,7 +29,8 @@ export class World {
   private _commands: Commands = new Commands();
   private events: Map<number, Events<unknown>> = new Map();
   private observers = new ObserverRegistry();
-  private stateTypes: StateClass<unknown>[] = [];
+  private stateTypes: StateDefinition<any>[] = [];
+  private states = new Map<StateDefinition<any>, StateStore<any>>();
 
   // ─── Entity operations ───
 
@@ -287,28 +288,24 @@ export class World {
 
   // ─── States ───
 
-  /** Register a State resource and its initial value. */
-  initState<S>(type: StateClass<S>, initial: S): this {
-    if (this.getResource(type)) {
-      throw new Error(`State is already initialized: ${type.name || '<anonymous>'}`);
-    }
-    this.insertResourceAs(type, new type(initial));
-    this.stateTypes.push(type as StateClass<unknown>);
+  /** Register an enum-like state definition. */
+  addState<S extends StateSpec>(definition: StateDefinition<S>): this {
+    if (this.states.has(definition)) throw new Error('State is already initialized');
+    this.states.set(definition, new StateStore(definition));
+    this.stateTypes.push(definition);
     return this;
   }
 
-  /** Get a registered State resource or throw if it has not been initialized. */
-  getState<S>(type: StateClass<S>): State<S> {
-    const state = this.getResource(type);
-    if (!state || !this.stateTypes.includes(type as StateClass<unknown>)) {
-      throw new Error(`State is not initialized: ${type.name || '<anonymous>'}`);
-    }
-    return state;
+  /** Get a registered state store. */
+  state<S extends StateSpec>(definition: StateDefinition<S>): StateStore<S> {
+    const state = this.states.get(definition);
+    if (!state) throw new Error('State is not initialized');
+    return state as StateStore<S>;
   }
 
-  /** Get the deferred transition handle for a registered State resource. */
-  getNextState<S>(type: StateClass<S>): NextState<S> {
-    return this.getState(type).getNextState();
+  /** Get the deferred transition handle for a registered state. */
+  nextState<S extends StateSpec>(definition: StateDefinition<S>): NextStateHandle<S> {
+    return this.state(definition).getNextState();
   }
 
   // ─── Query ───
@@ -479,12 +476,12 @@ export class World {
 
   private runStateTransitions(): void {
     for (const type of this.stateTypes) {
-      const state = this.getState(type);
+      const state = this.state(type);
       const pending = state._takeNext();
 
-      if (!pending.hasValue) {
+      if (!pending) {
         if (state._takeInitialEnter()) {
-          this.runStateStage(OnEnter(type, state.get()));
+          this.runStateStage(OnEnter(state.get()));
         }
         continue;
       }
@@ -492,35 +489,35 @@ export class World {
       // A request made before the first transition point supersedes the
       // initial enter. Re-requesting the initial value still enters it once.
       const from = state.get();
-      const to = pending.value as unknown;
+      const to = pending;
       const initialEnter = state._takeInitialEnter();
       if (Object.is(from, to)) {
-        if (initialEnter) this.runStateStage(OnEnter(type, from));
+        if (initialEnter) this.runStateStage(OnEnter(from));
         continue;
       }
 
-      this.runStateStage(OnExit(type, from));
+      this.runStateStage(OnExit(from));
       this.despawnOnStateExit(type, from);
-      this.runStateStage(OnTransition(type, from, to));
+      this.runStateStage(OnTransition(from, to));
       state._setCurrent(to);
-      this.runStateStage(OnEnter(type, to));
+      this.runStateStage(OnEnter(to));
     }
   }
 
-  private runStateStage(stage: StateStage<unknown>): void {
+  private runStateStage(stage: StateStage<any>): void {
     for (const system of this.scheduler.getSystemsForStage(stage)) {
       if (this.scheduler.shouldRun(system, this)) system.fn(this);
     }
   }
 
-  private despawnOnStateExit(type: StateClass<unknown>, state: unknown): void {
-    const storage = this.getComponentStorage(DespawnOnExit) as SparseSet<DespawnOnExit<unknown>> | undefined;
+  private despawnOnStateExit(type: StateDefinition<any>, state: unknown): void {
+    const storage = this.getComponentStorage(DespawnOnExit) as SparseSet<DespawnOnExit<any>> | undefined;
     if (!storage) return;
 
     // Despawning mutates this storage, so collect IDs before touching entities.
     const entityIds: number[] = [];
     storage.forEach((entityId, marker) => {
-      if (marker.matches(type, state)) entityIds.push(entityId);
+      if (marker.matches(type, state as any)) entityIds.push(entityId);
     });
     for (const entityId of entityIds) {
       const entity = this.getEntityById(entityId);

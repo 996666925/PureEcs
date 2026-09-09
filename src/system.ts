@@ -63,6 +63,7 @@ import {
 } from './event';
 import { QueryEngine } from './query';
 import { Entity } from './entity';
+import { StateStore, NextStateHandle, type StateDefinition, type StateSpec } from './state';
 
 // ─── Type helpers ───
 
@@ -155,6 +156,26 @@ export function Res<T>(resourceType: ComponentClass<T>): ResourceDescriptor<T> {
   return new ResourceDescriptor(resourceType);
 }
 
+export class StateDescriptor<S extends StateSpec = StateSpec> {
+  readonly definition: StateDefinition<S>;
+  constructor(definition: StateDefinition<S>) { this.definition = definition; }
+  declare readonly _type?: StateStore<S>;
+}
+
+export function State<S extends StateSpec>(definition: StateDefinition<S>): StateDescriptor<S> {
+  return new StateDescriptor(definition);
+}
+
+export class NextStateDescriptor<S extends StateSpec = StateSpec> {
+  readonly definition: StateDefinition<S>;
+  constructor(definition: StateDefinition<S>) { this.definition = definition; }
+  declare readonly _type?: NextStateHandle<S>;
+}
+
+export function NextState<S extends StateSpec>(definition: StateDefinition<S>): NextStateDescriptor<S> {
+  return new NextStateDescriptor(definition);
+}
+
 /** Describes a required mutable resource parameter. */
 export class ResourceMutDescriptor<T = unknown> {
   readonly resourceType: ComponentClass<T>;
@@ -239,6 +260,8 @@ type ParamDescriptor =
   | SingleDescriptor<any>
   | ResourceDescriptor<any>
   | ResourceMutDescriptor<any>
+  | StateDescriptor<any>
+  | NextStateDescriptor<any>
   | EventWriterDescriptor<any>
   | EventReaderDescriptor<any>
   | CommandsDescriptor
@@ -250,6 +273,8 @@ type InferParam<P> =
   P extends LocalDescriptor<infer T> ? T :
   P extends ResourceDescriptor<infer T> ? T :
   P extends ResourceMutDescriptor<infer T> ? ResourceMut<T> :
+  P extends StateDescriptor<infer S> ? StateStore<S> :
+  P extends NextStateDescriptor<infer S> ? NextStateHandle<S> :
   P extends EventWriterDescriptor<infer T> ? EventWriter<T> :
   P extends EventReaderDescriptor<infer T> ? EventReader<T> :
   P extends SingleDescriptor<infer T> ? T :
@@ -262,7 +287,7 @@ type InferParam<P> =
  * Resource/Commands/Local/Single descriptors produce a single value; others produce arrays.
  */
 type InferParams<D extends readonly ParamDescriptor[]> = {
-  [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> | ResourceMutDescriptor<any> | EventWriterDescriptor<any> | EventReaderDescriptor<any> | LocalDescriptor<any> | SingleDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
+  [K in keyof D]: D[K] extends CommandsDescriptor | ResourceDescriptor<any> | ResourceMutDescriptor<any> | StateDescriptor<any> | NextStateDescriptor<any> | EventWriterDescriptor<any> | EventReaderDescriptor<any> | LocalDescriptor<any> | SingleDescriptor<any> ? InferParam<D[K]> : InferParam<D[K]>[];
 };
 
 /** Components passed to the allocation-free `systemForEach` callback. */
@@ -487,6 +512,8 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
   // Pre-grouped ResourceDescriptor entries
   private resourceEntries: { idx: number; descriptor: ResourceDescriptor }[];
   private resourceMutEntries: { idx: number; descriptor: ResourceMutDescriptor }[];
+  private stateEntries: { idx: number; descriptor: StateDescriptor }[];
+  private nextStateEntries: { idx: number; descriptor: NextStateDescriptor }[];
   private eventWriterEntries: { idx: number; descriptor: EventWriterDescriptor<unknown> }[];
   private eventReaderEntries: { idx: number; descriptor: EventReaderDescriptor<unknown> }[];
   // Pre-grouped CommandsDescriptor indices
@@ -501,6 +528,8 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
     this.singleEntries = [];
     this.resourceEntries = [];
     this.resourceMutEntries = [];
+    this.stateEntries = [];
+    this.nextStateEntries = [];
     this.eventWriterEntries = [];
     this.eventReaderEntries = [];
     this.commandsIndices = [];
@@ -514,6 +543,10 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
         this.resourceEntries.push({ idx: i, descriptor: descriptors[i] as ResourceDescriptor });
       } else if (descriptors[i] instanceof ResourceMutDescriptor) {
         this.resourceMutEntries.push({ idx: i, descriptor: descriptors[i] as ResourceMutDescriptor });
+      } else if (descriptors[i] instanceof StateDescriptor) {
+        this.stateEntries.push({ idx: i, descriptor: descriptors[i] as StateDescriptor });
+      } else if (descriptors[i] instanceof NextStateDescriptor) {
+        this.nextStateEntries.push({ idx: i, descriptor: descriptors[i] as NextStateDescriptor });
       } else if (descriptors[i] instanceof EventWriterDescriptor) {
         this.eventWriterEntries.push({ idx: i, descriptor: descriptors[i] as EventWriterDescriptor<unknown> });
       } else if (descriptors[i] instanceof EventReaderDescriptor) {
@@ -535,7 +568,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * Resource/Local descriptors inject single values.
    */
   system(fn: (...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, singleEntries, resourceEntries, resourceMutEntries, eventWriterEntries, eventReaderEntries, commandsIndices, localEntries } = this;
+    const { plainGroup, queryIndices, singleEntries, resourceEntries, resourceMutEntries, stateEntries, nextStateEntries, eventWriterEntries, eventReaderEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
 
     // Pre-resolve QueryDescriptors to engines (reusable each frame)
@@ -585,6 +618,13 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
 
       for (const { idx, descriptor } of resourceMutEntries) {
         args[idx] = world.getRequiredResourceMut(descriptor.resourceType);
+      }
+
+      for (const { idx, descriptor } of stateEntries) {
+        args[idx] = world.state(descriptor.definition);
+      }
+      for (const { idx, descriptor } of nextStateEntries) {
+        args[idx] = world.nextState(descriptor.definition);
       }
 
       for (const { idx, descriptor } of eventWriterEntries) {
@@ -689,7 +729,7 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
    * only aligns with its own array. Use `Query(Entity, Component)` for guaranteed alignment.
    */
   systemWithWorld(fn: (world: World, entityIds: number[], ...args: InferParams<D>) => void): SystemFn {
-    const { plainGroup, queryIndices, singleEntries, resourceEntries, resourceMutEntries, eventWriterEntries, eventReaderEntries, commandsIndices, localEntries } = this;
+    const { plainGroup, queryIndices, singleEntries, resourceEntries, resourceMutEntries, stateEntries, nextStateEntries, eventWriterEntries, eventReaderEntries, commandsIndices, localEntries } = this;
     const totalArgs = this.descriptors.length;
 
     const localCache: { idx: number; value: unknown }[] = [];
@@ -730,6 +770,13 @@ export class ParamsBuilder<D extends readonly ParamDescriptor[]> {
 
       for (const { idx, descriptor } of resourceMutEntries) {
         args[idx] = world.getRequiredResourceMut(descriptor.resourceType);
+      }
+
+      for (const { idx, descriptor } of stateEntries) {
+        args[idx] = world.state(descriptor.definition);
+      }
+      for (const { idx, descriptor } of nextStateEntries) {
+        args[idx] = world.nextState(descriptor.definition);
       }
 
       for (const { idx, descriptor } of eventWriterEntries) {

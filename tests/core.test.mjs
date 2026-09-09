@@ -15,7 +15,9 @@ import {
   ResMut,
   ResourceStore,
   SparseSet,
+  defineState,
   State,
+  NextState,
   DespawnOnExit,
   OnEnter,
   OnExit,
@@ -33,28 +35,27 @@ import {
 } from '../dist/pureecs.mjs';
 
 test('State runs lifecycle systems, defers transitions, and gates systems by current state', () => {
-  const Screen = { Menu: 'menu', Playing: 'playing' };
-  class ScreenState extends State {}
-  class PauseState extends State {}
+  const Screen = defineState({ Menu: { initial: true }, Playing: {} });
+  const Pause = defineState({ Running: { initial: true }, Paused: {} });
 
   const order = [];
   let updates = 0;
   const app = new App()
-    .initState(ScreenState, Screen.Menu)
-    .initState(PauseState, false)
-    .addSystem(OnEnter(ScreenState, Screen.Menu), () => order.push('enter:menu'))
-    .addSystem(OnExit(ScreenState, Screen.Menu), () => order.push('exit:menu'))
-    .addSystem(OnTransition(ScreenState, Screen.Menu, Screen.Playing), () => order.push('transition'))
-    .addSystem(OnEnter(ScreenState, Screen.Playing), () => order.push('enter:playing'))
-    .addSystemConfig(system(() => order.push('menu')).runIf(inState(ScreenState, Screen.Menu)))
-    .addSystemConfig(system(() => order.push('playing')).runIf(inState(ScreenState, Screen.Playing)))
+    .addState(Screen)
+    .addState(Pause)
+    .addSystem(OnEnter(Screen.Menu), () => order.push('enter:menu'))
+    .addSystem(OnExit(Screen.Menu), () => order.push('exit:menu'))
+    .addSystem(OnTransition(Screen.Menu, Screen.Playing), () => order.push('transition'))
+    .addSystem(OnEnter(Screen.Playing), () => order.push('enter:playing'))
+    .addSystemConfig(system(() => order.push('menu')).runIf(inState(Screen.Menu)))
+    .addSystemConfig(system(() => order.push('playing')).runIf(inState(Screen.Playing)))
     .addSystem(Stages.Update, (world) => {
       updates++;
       if (updates === 1) {
-        world.getNextState(ScreenState).set(Screen.Playing);
-        world.getNextState(PauseState).set(true);
+        world.nextState(Screen).set(Screen.Playing);
+        world.nextState(Pause).set(Pause.Paused);
       }
-      if (updates === 2) world.getNextState(ScreenState).set(Screen.Playing);
+      if (updates === 2) world.nextState(Screen).set(Screen.Playing);
     });
 
   app.run(3);
@@ -68,31 +69,29 @@ test('State runs lifecycle systems, defers transitions, and gates systems by cur
     'playing',
     'playing',
   ]);
-  assert.equal(app.world.getState(ScreenState).get(), Screen.Playing);
-  assert.equal(app.world.getState(PauseState).get(), true);
-  assert.strictEqual(app.world.getResource(ScreenState), app.world.getState(ScreenState));
+  assert.equal(app.world.state(Screen).get(), Screen.Playing);
+  assert.equal(app.world.state(Pause).get(), Pause.Paused);
 });
 
 test('DespawnOnExit removes only entities scoped to the exited state after OnExit', () => {
-  const Screen = { Menu: 'menu', Playing: 'playing' };
-  class ScreenState extends State {}
+  const Screen = defineState({ Menu: { initial: true }, Playing: {} });
 
   let menuEntity;
   let playingEntity;
   let presentDuringExit = false;
   let updateCount = 0;
   const app = new App()
-    .initState(ScreenState, Screen.Menu)
+    .addState(Screen)
     .addStartupSystem((world) => {
-      menuEntity = world.spawnWith(new DespawnOnExit(ScreenState, Screen.Menu));
-      playingEntity = world.spawnWith(new DespawnOnExit(ScreenState, Screen.Playing));
+      menuEntity = world.spawnWith(new DespawnOnExit(Screen.Menu));
+      playingEntity = world.spawnWith(new DespawnOnExit(Screen.Playing));
     })
-    .addSystem(OnExit(ScreenState, Screen.Menu), (world) => {
+    .addSystem(OnExit(Screen.Menu), (world) => {
       presentDuringExit = world.isAlive(menuEntity);
     })
     .addSystem((world) => {
       updateCount++;
-      if (updateCount === 1) world.getNextState(ScreenState).set(Screen.Playing);
+      if (updateCount === 1) world.nextState(Screen).set(Screen.Playing);
     });
 
   app.run(2);
