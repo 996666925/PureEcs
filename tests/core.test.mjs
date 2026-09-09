@@ -14,6 +14,13 @@ import {
   ResMut,
   ResourceStore,
   SparseSet,
+  State,
+  DespawnOnExit,
+  OnEnter,
+  OnExit,
+  OnTransition,
+  inState,
+  Stages,
   SystemSet,
   Timer,
   World,
@@ -23,6 +30,76 @@ import {
   params,
   system,
 } from '../dist/pureecs.mjs';
+
+test('State runs lifecycle systems, defers transitions, and gates systems by current state', () => {
+  const Screen = { Menu: 'menu', Playing: 'playing' };
+  class ScreenState extends State {}
+  class PauseState extends State {}
+
+  const order = [];
+  let updates = 0;
+  const app = new App()
+    .initState(ScreenState, Screen.Menu)
+    .initState(PauseState, false)
+    .addSystem(OnEnter(ScreenState, Screen.Menu), () => order.push('enter:menu'))
+    .addSystem(OnExit(ScreenState, Screen.Menu), () => order.push('exit:menu'))
+    .addSystem(OnTransition(ScreenState, Screen.Menu, Screen.Playing), () => order.push('transition'))
+    .addSystem(OnEnter(ScreenState, Screen.Playing), () => order.push('enter:playing'))
+    .addSystemConfig(system(() => order.push('menu')).runIf(inState(ScreenState, Screen.Menu)))
+    .addSystemConfig(system(() => order.push('playing')).runIf(inState(ScreenState, Screen.Playing)))
+    .addSystem(Stages.Update, (world) => {
+      updates++;
+      if (updates === 1) {
+        world.getNextState(ScreenState).set(Screen.Playing);
+        world.getNextState(PauseState).set(true);
+      }
+      if (updates === 2) world.getNextState(ScreenState).set(Screen.Playing);
+    });
+
+  app.run(3);
+
+  assert.deepEqual(order, [
+    'enter:menu',
+    'menu',
+    'exit:menu',
+    'transition',
+    'enter:playing',
+    'playing',
+    'playing',
+  ]);
+  assert.equal(app.world.getState(ScreenState).get(), Screen.Playing);
+  assert.equal(app.world.getState(PauseState).get(), true);
+  assert.strictEqual(app.world.getResource(ScreenState), app.world.getState(ScreenState));
+});
+
+test('DespawnOnExit removes only entities scoped to the exited state after OnExit', () => {
+  const Screen = { Menu: 'menu', Playing: 'playing' };
+  class ScreenState extends State {}
+
+  let menuEntity;
+  let playingEntity;
+  let presentDuringExit = false;
+  let updateCount = 0;
+  const app = new App()
+    .initState(ScreenState, Screen.Menu)
+    .addStartupSystem((world) => {
+      menuEntity = world.spawnWith(new DespawnOnExit(ScreenState, Screen.Menu));
+      playingEntity = world.spawnWith(new DespawnOnExit(ScreenState, Screen.Playing));
+    })
+    .addSystem(OnExit(ScreenState, Screen.Menu), (world) => {
+      presentDuringExit = world.isAlive(menuEntity);
+    })
+    .addSystem((world) => {
+      updateCount++;
+      if (updateCount === 1) world.getNextState(ScreenState).set(Screen.Playing);
+    });
+
+  app.run(2);
+
+  assert.equal(presentDuringExit, true);
+  assert.equal(app.world.isAlive(menuEntity), false);
+  assert.equal(app.world.isAlive(playingEntity), true);
+});
 
 test('keyboard and mouse input use distinct resources', () => {
   const app = new App().addPlugin(new InputPlugin());

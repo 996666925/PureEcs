@@ -16,6 +16,8 @@ export type SystemCondition = (world: import('./world').World) => boolean;
  */
 export class Stage {
   readonly label: string;
+  /** Internal lifecycle stages are dispatched by World, not on every tick. */
+  readonly isStateLifecycle: boolean = false;
 
   constructor(label: string) {
     this.label = label;
@@ -64,6 +66,8 @@ export const Stages = {
   First: new Stage('First'),
   /** Before the main update logic */
   PreUpdate: new Stage('PreUpdate'),
+  /** Applies queued state changes and runs their lifecycle systems */
+  StateTransition: new Stage('StateTransition'),
   /** Main update logic */
   Update: new Stage('Update'),
   /** After the main update logic */
@@ -76,6 +80,7 @@ export const Stages = {
 const DEFAULT_UPDATE_ORDER: Stage[] = [
   Stages.First,
   Stages.PreUpdate,
+  Stages.StateTransition,
   Stages.Update,
   Stages.PostUpdate,
   Stages.Last,
@@ -182,7 +187,7 @@ export class Scheduler {
     // Ensure the system's stage exists in the schedule
     const isInStartup = this.startupStages.includes(config.stage);
     const isInUpdate = this.updateStages.includes(config.stage);
-    if (!isInStartup && !isInUpdate) {
+    if (!isInStartup && !isInUpdate && !config.stage.isStateLifecycle) {
       // Auto-add unknown stages to the update loop before Update
       this.addStageBefore(config.stage, Stages.Update);
     }
@@ -214,6 +219,11 @@ export class Scheduler {
     if (config.enabled === false) return false;
     if (config.runIf && !config.runIf.every((condition) => condition(world))) return false;
     return config.sets?.every((set) => set.shouldRun(world)) ?? true;
+  }
+
+  /** Get the ordered systems for an internal lifecycle stage. */
+  getSystemsForStage(stage: Stage): SystemConfig[] {
+    return topologicalSort(this.systems.filter((system) => system.stage === stage));
   }
 
   // ─── Internal ───

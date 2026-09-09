@@ -2,6 +2,7 @@ import { World, type SystemFn, type SystemAddOptions } from './world';
 import { type SystemConfig, Stage, SystemBuilder } from './scheduler';
 import type { Plugin } from './plugin';
 import type { ComponentClass } from './component';
+import type { StateClass } from './state';
 
 export { system, type SystemConfig, Stages, Stage } from './scheduler';
 
@@ -76,6 +77,13 @@ export class App {
   insertResource<T>(resource: T): this {
     this.assertActive();
     this.world.insertResource(resource);
+    return this;
+  }
+
+  /** Register a State resource and its initial value. */
+  initState<S>(type: StateClass<S>, initial: S): this {
+    this.assertActive();
+    this.world.initState(type, initial);
     return this;
   }
 

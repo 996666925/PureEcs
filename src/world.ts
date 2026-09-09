@@ -8,6 +8,7 @@ import { Commands } from './commands';
 import { ChangeTrackers, Mut, ResourceMut } from './change-tracking';
 import { Events } from './event';
 import { Scheduler, Stages, type Stage, type SystemConfig, type SystemFn, SystemBuilder } from './scheduler';
+import { DespawnOnExit, NextState, State, type StateClass, type StateStage, OnEnter, OnExit, OnTransition } from './state';
 
 export type { SystemFn };
 
@@ -27,6 +28,7 @@ export class World {
   private scheduler = new Scheduler();
   private _commands: Commands = new Commands();
   private events: Map<number, Events<unknown>> = new Map();
+  private stateTypes: StateClass<unknown>[] = [];
 
   // ─── Entity operations ───
 
@@ -255,6 +257,32 @@ export class World {
     return this.resources.has(type);
   }
 
+  // ─── States ───
+
+  /** Register a State resource and its initial value. */
+  initState<S>(type: StateClass<S>, initial: S): this {
+    if (this.getResource(type)) {
+      throw new Error(`State is already initialized: ${type.name || '<anonymous>'}`);
+    }
+    this.insertResourceAs(type, new type(initial));
+    this.stateTypes.push(type as StateClass<unknown>);
+    return this;
+  }
+
+  /** Get a registered State resource or throw if it has not been initialized. */
+  getState<S>(type: StateClass<S>): State<S> {
+    const state = this.getResource(type);
+    if (!state || !this.stateTypes.includes(type as StateClass<unknown>)) {
+      throw new Error(`State is not initialized: ${type.name || '<anonymous>'}`);
+    }
+    return state;
+  }
+
+  /** Get the deferred transition handle for a registered State resource. */
+  getNextState<S>(type: StateClass<S>): NextState<S> {
+    return this.getState(type).getNextState();
+  }
+
   // ─── Query ───
 
   query(...types: ComponentClass[]): IterableIterator<[number, unknown[]]> {
@@ -394,7 +422,10 @@ export class World {
 
     // Update loop — iterate stages in order
     const updateByStage = this.scheduler.getUpdateSystemsByStage();
-    for (const [, systems] of updateByStage) {
+    for (const [stage, systems] of updateByStage) {
+      if (stage === Stages.StateTransition) {
+        this.runStateTransitions();
+      }
       for (const sys of systems) {
         if (this.scheduler.shouldRun(sys, this)) sys.fn(this);
       }
@@ -416,6 +447,57 @@ export class World {
 
   get entityCount(): number {
     return this.entityAlloc.aliveCount();
+  }
+
+  private runStateTransitions(): void {
+    for (const type of this.stateTypes) {
+      const state = this.getState(type);
+      const pending = state._takeNext();
+
+      if (!pending.hasValue) {
+        if (state._takeInitialEnter()) {
+          this.runStateStage(OnEnter(type, state.get()));
+        }
+        continue;
+      }
+
+      // A request made before the first transition point supersedes the
+      // initial enter. Re-requesting the initial value still enters it once.
+      const from = state.get();
+      const to = pending.value as unknown;
+      const initialEnter = state._takeInitialEnter();
+      if (Object.is(from, to)) {
+        if (initialEnter) this.runStateStage(OnEnter(type, from));
+        continue;
+      }
+
+      this.runStateStage(OnExit(type, from));
+      this.despawnOnStateExit(type, from);
+      this.runStateStage(OnTransition(type, from, to));
+      state._setCurrent(to);
+      this.runStateStage(OnEnter(type, to));
+    }
+  }
+
+  private runStateStage(stage: StateStage<unknown>): void {
+    for (const system of this.scheduler.getSystemsForStage(stage)) {
+      if (this.scheduler.shouldRun(system, this)) system.fn(this);
+    }
+  }
+
+  private despawnOnStateExit(type: StateClass<unknown>, state: unknown): void {
+    const storage = this.getComponentStorage(DespawnOnExit) as SparseSet<DespawnOnExit<unknown>> | undefined;
+    if (!storage) return;
+
+    // Despawning mutates this storage, so collect IDs before touching entities.
+    const entityIds: number[] = [];
+    storage.forEach((entityId, marker) => {
+      if (marker.matches(type, state)) entityIds.push(entityId);
+    });
+    for (const entityId of entityIds) {
+      const entity = this.getEntityById(entityId);
+      if (entity) this.despawn(entity);
+    }
   }
 }
 

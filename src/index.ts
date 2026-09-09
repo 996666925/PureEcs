@@ -13,6 +13,10 @@ export { params, Query, Single, QueryDescriptor, SingleDescriptor, ParamsBuilder
 // Scheduler
 export { Scheduler, SystemBuilder, SystemSet, CircularDependencyError, type SystemCondition } from './scheduler';
 
+// States
+export { State, NextState, DespawnOnExit, StateStage, OnEnter, OnExit, OnTransition, inState } from './state';
+export type { StateClass, StateLifecycle } from './state';
+
 // Entity
 export { Entity } from './entity';
 

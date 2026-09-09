@@ -17,6 +17,7 @@
 9. [插件机制](docs/09-插件机制.md)
 10. [输入系统](docs/10-输入系统.md)
 11. [性能最佳实践](docs/11-性能最佳实践.md)
+12. [状态管理](docs/12-状态管理.md)
 
 ## 快速开始
 
@@ -618,8 +619,11 @@ world.isAlive(e2);              // true
 | `With()` / `Without()` | 组件存在过滤器 |
 | `Added()` / `Changed()` | 变更跟踪过滤器 |
 | `Mut<T>` / `ResourceMut<T>` | 可变组件 / 资源引用，调用 `get()` 标记变更 |
-| `Stages` | 内置阶段：Startup / First / PreUpdate / Update / PostUpdate / Last |
+| `Stages` | 内置阶段：Startup / First / PreUpdate / StateTransition / Update / PostUpdate / Last |
 | `Stage` | 自定义阶段 |
+| `State` / `NextState` | 离散状态资源与延迟状态切换 |
+| `DespawnOnExit` | 离开指定状态时自动销毁带标记的实体 |
+| `OnEnter` / `OnExit` / `OnTransition` / `inState` | 状态生命周期阶段与状态条件 |
 | `Commands` / `SpawnBuilder` | 延迟世界变更 |
 | `Events` / `EventWriter` / `EventReader` | 按类型发送和读取帧内事件 |
 | `SystemSet` | 共享系统条件、启停和排序约束 |
