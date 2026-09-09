@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788918413408,
+  "lastUpdate": 1788935854305,
   "repoUrl": "https://github.com/996666925/PureEcs",
   "entries": {
     "Benchmark": [
@@ -1044,6 +1044,78 @@ window.BENCHMARK_DATA = {
           {
             "name": "despawn entities",
             "value": 11.918881999999996,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hanweizhao@qcwlcloud.com",
+            "name": "996666925"
+          },
+          "committer": {
+            "email": "hanweizhao@qcwlcloud.com",
+            "name": "996666925"
+          },
+          "distinct": true,
+          "id": "94f2f185feeeeb7debe406e53efa19caaf509254",
+          "message": "feat(event): 新增 Observer 同步通知与实体目标触发",
+          "timestamp": "2026-09-09T14:36:51+08:00",
+          "tree_id": "270aec24d82b231298d15c6cecd05103c380a936",
+          "url": "https://github.com/996666925/PureEcs/commit/94f2f185feeeeb7debe406e53efa19caaf509254"
+        },
+        "date": 1788935853280,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "spawn + insert Position/Velocity",
+            "value": 57.57503899999995,
+            "unit": "ms"
+          },
+          {
+            "name": "spawnWith initial components",
+            "value": 34.95232800000002,
+            "unit": "ms"
+          },
+          {
+            "name": "getComponent lookup",
+            "value": 30.98762499999998,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position",
+            "value": 17.779739000000006,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach Position + Velocity",
+            "value": 15.34087999999997,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.forEach with With(Active)",
+            "value": 12.213964000000033,
+            "unit": "ms"
+          },
+          {
+            "name": "QueryEngine.iter Position + Velocity",
+            "value": 30.543002,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query system (materialized)",
+            "value": 31.79606000000001,
+            "unit": "ms"
+          },
+          {
+            "name": "params Query systemForEach",
+            "value": 12.979337999999984,
+            "unit": "ms"
+          },
+          {
+            "name": "despawn entities",
+            "value": 11.900557000000049,
             "unit": "ms"
           }
         ]
