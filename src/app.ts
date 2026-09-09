@@ -3,6 +3,8 @@ import { type SystemConfig, Stage, SystemBuilder } from './scheduler';
 import type { Plugin } from './plugin';
 import type { ComponentClass } from './component';
 import type { StateClass } from './state';
+import type { Entity } from './entity';
+import type { Observer } from './event';
 
 export { system, type SystemConfig, Stages, Stage } from './scheduler';
 
@@ -113,6 +115,24 @@ export class App {
   addEvent<T>(eventType: ComponentClass<T>): this {
     this.assertActive();
     this.world.initEvent(eventType);
+    return this;
+  }
+
+  /** Register an observer that receives every synchronous trigger of this type. */
+  addObserver<T>(eventType: ComponentClass<T>, observer: Observer<T>): this;
+  /** Register an observer that receives triggers targeted at one entity. */
+  addObserver<T>(eventType: ComponentClass<T>, target: Entity, observer: Observer<T>): this;
+  addObserver<T>(
+    eventType: ComponentClass<T>,
+    targetOrObserver: Entity | Observer<T>,
+    maybeObserver?: Observer<T>,
+  ): this {
+    this.assertActive();
+    if (typeof targetOrObserver === 'function') {
+      this.world.addObserver(eventType, targetOrObserver);
+    } else {
+      this.world.addObserver(eventType, targetOrObserver, maybeObserver!);
+    }
     return this;
   }
 

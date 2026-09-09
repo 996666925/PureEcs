@@ -6,7 +6,7 @@ import { QueryEngine, type QueryFilter } from './query';
 import { ResourceStore } from './resource';
 import { Commands } from './commands';
 import { ChangeTrackers, Mut, ResourceMut } from './change-tracking';
-import { Events } from './event';
+import { Events, ObserverRegistry, type Observer } from './event';
 import { Scheduler, Stages, type Stage, type SystemConfig, type SystemFn, SystemBuilder } from './scheduler';
 import { DespawnOnExit, NextState, State, type StateClass, type StateStage, OnEnter, OnExit, OnTransition } from './state';
 
@@ -28,6 +28,7 @@ export class World {
   private scheduler = new Scheduler();
   private _commands: Commands = new Commands();
   private events: Map<number, Events<unknown>> = new Map();
+  private observers = new ObserverRegistry();
   private stateTypes: StateClass<unknown>[] = [];
 
   // ─── Entity operations ───
@@ -251,6 +252,33 @@ export class World {
       throw new Error(`Event type is not registered: ${type.name || '<anonymous>'}`);
     }
     return events;
+  }
+
+  /** Register an observer that receives every synchronous trigger of this type. */
+  addObserver<T>(eventType: ComponentClass<T>, observer: Observer<T>): this;
+  /** Register an observer that receives triggers targeted at one entity. */
+  addObserver<T>(eventType: ComponentClass<T>, target: Entity, observer: Observer<T>): this;
+  addObserver<T>(
+    eventType: ComponentClass<T>,
+    targetOrObserver: Entity | Observer<T>,
+    maybeObserver?: Observer<T>,
+  ): this {
+    if (typeof targetOrObserver === 'function') {
+      this.observers.add(eventType, targetOrObserver);
+    } else {
+      this.observers.add(eventType, maybeObserver!, targetOrObserver);
+    }
+    return this;
+  }
+
+  /** Synchronously trigger all global observers for this event's class. */
+  trigger<T>(event: T): void {
+    this.observers.trigger(this, event);
+  }
+
+  /** Synchronously trigger global and matching entity observers. */
+  triggerTargets<T>(event: T, target: Entity): void {
+    this.observers.trigger(this, event, target);
   }
 
   hasResource(type: ComponentClass): boolean {

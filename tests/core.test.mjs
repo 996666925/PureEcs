@@ -6,6 +6,7 @@ import {
   DefaultPlugin,
   EventReader,
   EventWriter,
+  Trigger,
   InputPlugin,
   InputTarget,
   KeyboardInput,
@@ -369,6 +370,49 @@ test('events are delivered in the same tick and cleared after it', () => {
   app.update();
   assert.deepEqual(received, ['now']);
   assert.deepEqual(app.world.getRequiredEvents(Hit).readAfter(-1).events, []);
+});
+
+test('observers synchronously receive global and entity-targeted triggers', () => {
+  class Hit {
+    constructor(value) {
+      this.value = value;
+    }
+  }
+
+  const order = [];
+  const app = new App();
+  const target = app.world.spawn();
+  const otherTarget = app.world.spawn();
+
+  app
+    .addObserver(Hit, (trigger, world) => {
+      assert.ok(trigger instanceof Trigger);
+      order.push(`global:${trigger.event.value}:${trigger.target?.id ?? 'none'}`);
+      if (trigger.event.value === 'first') world.trigger(new Hit('nested'));
+    })
+    .addObserver(Hit, target, (trigger) => {
+      order.push(`target:${trigger.event.value}:${trigger.target?.id}`);
+    })
+    .addObserver(Hit, otherTarget, () => order.push('other'))
+    .addSystem((world) => {
+      world.triggerTargets(new Hit('first'), target);
+      order.push('after-sync');
+      world.commands.trigger(new Hit('deferred'));
+    });
+
+  app.update();
+
+  assert.deepEqual(order, [
+    `global:first:${target.id}`,
+    'global:nested:none',
+    `target:first:${target.id}`,
+    'after-sync',
+    'global:deferred:none',
+  ]);
+
+  app.world.despawn(target);
+  app.world.triggerTargets(new Hit('after-despawn'), target);
+  assert.deepEqual(order.slice(-1), [`global:after-despawn:${target.id}`]);
 });
 
 test('system conditions, enabled state, and system sets control execution order', () => {

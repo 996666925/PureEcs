@@ -625,7 +625,8 @@ world.isAlive(e2);              // true
 | `DespawnOnExit` | 离开指定状态时自动销毁带标记的实体 |
 | `OnEnter` / `OnExit` / `OnTransition` / `inState` | 状态生命周期阶段与状态条件 |
 | `Commands` / `SpawnBuilder` | 延迟世界变更 |
-| `Events` / `EventWriter` / `EventReader` | 按类型发送和读取帧内事件 |
+| `Events` / `EventWriter` / `EventReader` | 按类型发送和读取帧内 Message |
+| `Trigger` / `Observer` | 同步 Event 通知与实体目标观察 |
 | `SystemSet` | 共享系统条件、启停和排序约束 |
 | `App.destroy()` | 清理插件资源（包括输入事件监听） |
 | `Plugin` / `PluginGroup` / `DefaultPlugin` | 插件机制，`DefaultPlugin` 内置 Time（输入请显式添加 `InputPlugin`） |

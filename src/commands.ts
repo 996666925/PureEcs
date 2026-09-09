@@ -41,6 +41,16 @@ export class Commands {
     this.queue.push({ type: 'removeResource', componentType: type });
   }
 
+  /** Trigger observers after the current stage has finished. */
+  trigger(event: unknown): void {
+    this.queue.push({ type: 'trigger', event });
+  }
+
+  /** Trigger global and matching entity observers after the current stage. */
+  triggerTargets(event: unknown, target: Entity): void {
+    this.queue.push({ type: 'trigger', event, target });
+  }
+
   /**
    * Apply all queued commands to the world.
    * @internal Called by the scheduler after systems run.
@@ -72,6 +82,10 @@ export class Commands {
           break;
         case 'removeResource':
           world.removeResource(cmd.componentType);
+          break;
+        case 'trigger':
+          if (cmd.target) world.triggerTargets(cmd.event, cmd.target);
+          else world.trigger(cmd.event);
           break;
       }
     }
@@ -116,4 +130,5 @@ type Command =
   | { type: 'insert'; entity: Entity; component: unknown }
   | { type: 'remove'; entity: Entity; componentType: ComponentClass }
   | { type: 'insertResource'; resource: unknown }
-  | { type: 'removeResource'; componentType: ComponentClass };
+  | { type: 'removeResource'; componentType: ComponentClass }
+  | { type: 'trigger'; event: unknown; target?: Entity };

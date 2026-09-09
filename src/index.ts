@@ -39,7 +39,7 @@ export { Commands } from './commands';
 export { Mut, ResourceMut, ChangeTrackers } from './change-tracking';
 
 // Events
-export { Events, EventWriter, EventReader, EventWriterDescriptor, EventReaderDescriptor, type EventWriter as EventWriterHandle, type EventReader as EventReaderHandle } from './event';
+export { Events, Trigger, EventWriter, EventReader, EventWriterDescriptor, EventReaderDescriptor, type Observer, type EventWriter as EventWriterHandle, type EventReader as EventReaderHandle } from './event';
 
 // Storage
 export { SparseSet } from './storage';
